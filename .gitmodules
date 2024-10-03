@@ -1,0 +1,3 @@
+[submodule "extern/midnight-graphics"]
+	path = extern/midnight-graphics
+	url = https://github.com/maxortner01/midnight-graphics
