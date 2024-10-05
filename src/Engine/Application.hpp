@@ -1,5 +1,7 @@
 #pragma once
 
+#include <midnight/midnight.hpp>
+
 #include <vector>
 #include <memory>
 #include <chrono>
@@ -17,11 +19,18 @@ namespace Engine
         virtual ~Scene() = default;
 
         virtual Replace update(double dt) = 0;
-        virtual void render() const = 0;
+        virtual void render(mn::Graphics::RenderFrame&) const = 0;
+        virtual void poll(mn::Graphics::Event&) = 0;
     };
 
     struct Application
     {
+        Application(mn::Math::Vec2u size) :
+            window(size, "Hello")
+        {
+
+        }
+
         template<typename T, typename... Args>
             requires ( std::derived_from<T, Scene> )
         void emplace_scene(Args&&... args)
@@ -41,14 +50,31 @@ namespace Engine
                 now = new_now;
 
                 auto new_scene = scenes.back()->update(dt);
-                scenes.back()->render();
+                
+                mn::Graphics::Event event;
+                while (window.pollEvent(event))
+                    scenes.back()->poll(event);
+
+
+		        auto rf = window.startFrame();
+
+
+                //rf.setPushConstant(pipeline, c);
+                //rf.draw(pipeline, model);
+                scenes.back()->render(rf);
+
+
+		        window.endFrame(rf);
 
                 if (new_scene.destroy)    scenes.pop_back();
                 if (new_scene.next_scene) scenes.push_back(std::move(new_scene.next_scene));
             }
+
+            window.finishWork();
         }
 
     private:
+        mn::Graphics::Window window;
         std::vector<std::unique_ptr<Scene>> scenes;
     };
 }

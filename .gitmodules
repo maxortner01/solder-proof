@@ -1,3 +1,6 @@
 [submodule "extern/midnight-graphics"]
 	path = extern/midnight-graphics
 	url = https://github.com/maxortner01/midnight-graphics
+[submodule "extern/flecs"]
+	path = extern/flecs
+	url = https://github.com/SanderMertens/flecs
