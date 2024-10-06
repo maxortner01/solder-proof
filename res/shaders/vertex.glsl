@@ -52,6 +52,7 @@ layout (std430, push_constant) uniform Constants
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec3 outPosition;
+layout(location = 3) out vec3 outViewPos;
 
 void main() {
 
@@ -65,4 +66,6 @@ void main() {
 
     outNormal = normalize((constants.models.data[gl_InstanceIndex].normal * vec4(normal, 1.0)).xyz);
     outPosition = (constants.models.data[gl_InstanceIndex].model * vec4(position, 1.0)).xyz;
+
+    outViewPos = (constants.scene_data.data[constants.scene_index].view * vec4(0, 0, 0, 1)).xyz * -1.0;
 }

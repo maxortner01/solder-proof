@@ -69,16 +69,22 @@ layout(location = 0) out vec4 outColor;
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec3 position;
+layout(location = 3) in vec3 view_pos;
 
 void main() {
     outColor = vec4(0, 0, 0, 1);
     for (int i = 0; i < constants.light_count; i++)
     {
         vec3 r = position - get_pos( constants.lights.data[i].position );
+
+        vec3 viewDir = normalize(position - view_pos);
+        vec3 reflectDir = normalize(reflect(-r, normal));
+        
         outColor += vec4(
             get_color(constants.lights.data[i].color) * 
-            constants.lights.data[i].intensity * 
-            min(max(dot(normalize(r), normal), 0.0) / dot(r, r), 1.0), 
+            (constants.lights.data[i].intensity * // Diffuse
+            min(max(dot(normalize(r), normal), 0.0) / dot(r, r), 1.0)
+            + 0.08 * pow(max(dot(viewDir, reflectDir), 0.0), 8)), // Specular 
         1);
     }
     outColor.w = 1.0;
