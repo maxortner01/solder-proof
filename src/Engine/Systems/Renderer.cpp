@@ -21,7 +21,9 @@ namespace Engine::System
         pipeline(mn::Graphics::PipelineBuilder()
             .fromLua(RES_DIR, luafile)
             .setPushConstantObject<PushConstant>()
-            .build())
+            .addTextureBinding()
+            .build()),
+        box_texture(RES_DIR "/textures/box.png")
     {   
         surface = std::make_shared<mn::Graphics::Image>(
             mn::Graphics::ImageFactory()
@@ -48,6 +50,10 @@ namespace Engine::System
         scene_data.resize(camera_query.count()); 
         light_data.resize(light_query.count());
         brother_buffer.resize(model_query.count());
+
+        std::vector<std::shared_ptr<Graphics::Image>> images;
+        images.push_back(box_texture.get_image());
+        pipeline.getSet()->setImages(0, Graphics::Backend::Sampler::Nearest, images);
 
         // we can keep handle the descriptor set here as well
         // go through the unique models and push the texture

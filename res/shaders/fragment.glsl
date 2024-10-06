@@ -64,12 +64,15 @@ layout (std140, push_constant) uniform Constants
     uint light_count;
 } constants;
 
+layout(set = 0, binding = 0) uniform sampler2D textures[];
+
 layout(location = 0) out vec4 outColor;
 
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec3 position;
 layout(location = 3) in vec3 view_pos;
+layout(location = 4) in vec2 tex_coords;
 
 void main() {
     outColor = vec4(0, 0, 0, 1);
@@ -87,6 +90,6 @@ void main() {
             + 0.08 * pow(max(dot(viewDir, reflectDir), 0.0), 8)), // Specular 
         1);
     }
+    outColor = texture(textures[0], tex_coords) * inColor * (outColor);
     outColor.w = 1.0;
-    outColor = inColor * outColor;
 }

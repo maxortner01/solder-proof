@@ -37,6 +37,7 @@ namespace Engine::System
 
     private:
         std::shared_ptr<mn::Graphics::Image> surface;
+        mn::Graphics::Texture box_texture;
 
         flecs::world world;
 

@@ -21,6 +21,8 @@ namespace Game
         Engine::System::Renderer renderer;
         std::shared_ptr<mn::Graphics::Model> model;
 
+        std::shared_ptr<mn::Graphics::Image> test_image;
+
         std::vector<flecs::entity> entities;
 
         MainScene();
