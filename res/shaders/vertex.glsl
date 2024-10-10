@@ -41,13 +41,20 @@ layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer Lig
     Light data[];
 };
 
-layout (std430, push_constant) uniform Constants
+layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer InstancePtr
+{
+    uint data[];
+};
+
+layout (std140, push_constant) uniform Constants
 {
     SceneDataPtr scene_data;
     ModelsPtr models;
     LightsPtr lights;
+    InstancePtr instances;
     uint scene_index;
     uint light_count;
+    uint offset;
 } constants;
 
 layout(location = 0) out vec4 outColor;
@@ -57,16 +64,18 @@ layout(location = 3) out vec3 outViewPos;
 layout(location = 4) out vec2 outTexCoords;
 
 void main() {
+    uint index = gl_InstanceIndex + constants.offset;
+    uint instance_index = constants.instances.data[index];
 
     gl_Position = 
         constants.scene_data.data[constants.scene_index].projection * 
         constants.scene_data.data[constants.scene_index].view * 
-        constants.models.data[gl_InstanceIndex].model * 
+        constants.models.data[instance_index].model * 
             vec4(position, 1.0);
 
     outColor = color;
     outTexCoords = tex_coords;
-    outNormal = (constants.models.data[gl_InstanceIndex].normal * vec4(normal, 1.0)).xyz;
-    outPosition = (constants.models.data[gl_InstanceIndex].model * vec4(position, 1.0)).xyz;
+    outNormal = (constants.models.data[instance_index].normal * vec4(normal, 1.0)).xyz;
+    outPosition = (constants.models.data[instance_index].model * vec4(position, 1.0)).xyz;
     outViewPos = (constants.scene_data.data[constants.scene_index].view * vec4(0, 0, 0, 1)).xyz * -1.0;
 }

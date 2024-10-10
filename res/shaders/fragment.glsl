@@ -55,16 +55,24 @@ layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer Lig
     Light data[];
 };
 
+layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer InstancePtr
+{
+    uint data[];
+};
+
 layout (std140, push_constant) uniform Constants
 {
     SceneDataPtr scene_data;
     ModelsPtr models;
     LightsPtr lights;
+    InstancePtr instances;
     uint scene_index;
     uint light_count;
+    uint offset;
 } constants;
 
-layout(set = 0, binding = 0) uniform sampler2D textures[];
+layout(set = 0, binding = 0) uniform sampler samplers[2];
+layout(set = 0, binding = 1) uniform texture2D textures[];
 
 layout(location = 0) out vec4 outColor;
 
@@ -90,6 +98,7 @@ void main() {
             + 0.08 * pow(max(dot(viewDir, reflectDir), 0.0), 8)), // Specular 
         1);
     }
-    outColor = texture(textures[0], tex_coords) * inColor * (outColor);
+    //outColor = texture(textures[0], tex_coords) * inColor * (vec4(0.2, 0.2, 0.2, 1.0) + outColor);
+    outColor = inColor * outColor;
     outColor.w = 1.0;
 }

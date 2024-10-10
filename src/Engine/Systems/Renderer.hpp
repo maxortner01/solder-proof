@@ -28,8 +28,8 @@ namespace Engine::System
 
         struct PushConstant
         {
-            mn::Graphics::Buffer::gpu_addr scene_data, models, lights;
-            uint32_t scene_index, light_count;
+            mn::Graphics::Buffer::gpu_addr scene_data, models, lights, instance_indices;
+            uint32_t scene_index, light_count, offset;
         };
 
         Renderer(flecs::world _world, const std::string& luafile);
@@ -45,8 +45,10 @@ namespace Engine::System
         flecs::query<const Component::Light, const Component::Transform> light_query;
         flecs::query<const Component::Model, const Component::Transform> model_query;
 
+        mutable mn::Graphics::Descriptor descriptor;
         mutable mn::Graphics::Pipeline pipeline;
         mutable mn::Graphics::TypeBuffer<InstanceData> brother_buffer;
+        mutable mn::Graphics::TypeBuffer<uint32_t> instance_buffer;
         mutable mn::Graphics::TypeBuffer<RenderData> scene_data;
         mutable mn::Graphics::TypeBuffer<Light> light_data;
     };

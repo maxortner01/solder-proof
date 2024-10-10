@@ -2,6 +2,9 @@
 
 #include <midnight/midnight.hpp>
 
+#include "ResourceManager.hpp"
+#include "Model.hpp"
+
 namespace Engine::Component
 {
     struct Transform
@@ -12,7 +15,7 @@ namespace Engine::Component
 
     struct Model
     {
-        std::shared_ptr<mn::Graphics::Model> model;
+        ResourceManager::Entry<Engine::Model> model;
     };
 
     struct Camera

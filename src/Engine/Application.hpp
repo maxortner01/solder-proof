@@ -16,17 +16,24 @@ namespace Engine
             std::unique_ptr<Scene> next_scene;    
         };
 
+        Scene(std::shared_ptr<mn::Graphics::Window> w) :
+            window{w}
+        {   }
+
         virtual ~Scene() = default;
 
         virtual Replace update(double dt) = 0;
         virtual void render(mn::Graphics::RenderFrame&) const = 0;
         virtual void poll(mn::Graphics::Event&) = 0;
+
+    protected:
+        std::shared_ptr<mn::Graphics::Window> window;
     };
 
     struct Application
     {
         Application(mn::Math::Vec2u size) :
-            window(size, "Hello")
+            window(std::make_shared<mn::Graphics::Window>(size, "Hello"))
         {
 
         }
@@ -35,7 +42,7 @@ namespace Engine
             requires ( std::derived_from<T, Scene> )
         void emplace_scene(Args&&... args)
         {
-            scenes.emplace_back(std::make_unique<T>(std::forward<Args>(args)...));
+            scenes.emplace_back(std::make_unique<T>(window, std::forward<Args>(args)...));
         }
 
         void run()
@@ -52,11 +59,13 @@ namespace Engine
                 auto new_scene = scenes.back()->update(dt);
                 
                 mn::Graphics::Event event;
-                while (window.pollEvent(event))
+                while (window->pollEvent(event))
+                {
                     scenes.back()->poll(event);
+                }
 
 
-		        auto rf = window.startFrame();
+		        auto rf = window->startFrame();
 
 
                 //rf.setPushConstant(pipeline, c);
@@ -64,17 +73,17 @@ namespace Engine
                 scenes.back()->render(rf);
 
 
-		        window.endFrame(rf);
+		        window->endFrame(rf);
 
                 if (new_scene.destroy)    scenes.pop_back();
                 if (new_scene.next_scene) scenes.push_back(std::move(new_scene.next_scene));
             }
 
-            window.finishWork();
+            window->finishWork();
         }
 
     private:
-        mn::Graphics::Window window;
+        std::shared_ptr<mn::Graphics::Window> window;
         std::vector<std::unique_ptr<Scene>> scenes;
     };
 }
