@@ -11,6 +11,7 @@ Pipeline = {
        -- vertex   = "/shaders/vertex.glsl",
       --  fragment = "/shaders/fragment.glsl"
     --},
+    formats = { 37, 97, 97 },
     colorFormat = VK_FORMAT_B8G8R8A8_UNORM,
     depthFormat = VK_FORMAT_D32_SFLOAT_S8_UINT,
     depthTesting    = true,

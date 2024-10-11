@@ -1,9 +1,50 @@
 #include "Renderer.hpp"
 
+#include "../../Util/DataRep.hpp"
+
+#include <imgui.h>
 #include <unordered_map>
 
 namespace Engine::System
 {
+    void Renderer::GBuffer::rebuild(mn::Math::Vec2u size)
+    {
+        using namespace mn::Graphics;
+
+        if (!position)
+            position = std::make_shared<Image>(
+                ImageFactory()
+                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
+                    .build()
+            );
+        else
+            position->rebuildAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
+
+        if (!normal)
+            normal = std::make_shared<Image>(
+                ImageFactory()
+                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
+                    .build()
+            );
+        else
+            normal->rebuildAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
+
+        if (!color)
+            color = std::make_shared<Image>(
+                ImageFactory()
+                    .addAttachment<Image::Color>(Image::R8G8B8A8_UNORM, size)
+                    .addAttachment<Image::DepthStencil>(Image::DF32_SU8, size)
+                    .build()
+            );
+        else
+        {
+            color->rebuildAttachment<Image::Color>(Image::R8G8B8A8_UNORM, size);
+            color->rebuildAttachment<Image::DepthStencil>(Image::DF32_SU8, size);
+        }
+
+        this->size = size;
+    }
+
     Renderer::Renderer(flecs::world _world, const mn::Graphics::PipelineBuilder& builder) : 
         world{_world},
         model_query(_world.query_builder<const Component::Model, const Component::Transform>()
@@ -23,7 +64,7 @@ namespace Engine::System
         descriptor(
             mn::Graphics::DescriptorBuilder()
                 .addBinding(mn::Graphics::Descriptor::Binding{ .type = mn::Graphics::Descriptor::Binding::Sampler, .count = 2 })
-                .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 640)
+                .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 3)
                 .build()),
         pipeline(std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
@@ -36,6 +77,33 @@ namespace Engine::System
             {
                 return std::move(builder.setPushConstantObject<PushConstant>().setPolyMode(mn::Graphics::Polygon::Wireframe).build());
             }(builder)
+        )),
+        quad_mesh(mn::Graphics::Mesh::fromFrame([]()
+        {
+            mn::Graphics::Mesh::Frame frame;
+
+            frame.vertices = {
+                mn::Graphics::Mesh::Vertex{ .position = { -1.f,  1.f, 0.f }, .tex_coords = { 0.f, 1.f } },
+                mn::Graphics::Mesh::Vertex{ .position = {  1.f,  1.f, 0.f }, .tex_coords = { 1.f, 1.f } },
+                mn::Graphics::Mesh::Vertex{ .position = {  1.f, -1.f, 0.f }, .tex_coords = { 1.f, 0.f } },
+                mn::Graphics::Mesh::Vertex{ .position = { -1.f, -1.f, 0.f }, .tex_coords = { 0.f, 0.f } }
+            };
+
+            frame.indices = { 1, 0, 2, 3, 2, 0 };
+
+            return frame;
+        }())),
+        quad_pipeline(std::make_shared<mn::Graphics::Pipeline>(
+            mn::Graphics::PipelineBuilder() 
+                .addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex)
+                .addShader(RES_DIR "/shaders/quad.fragment.glsl", mn::Graphics::ShaderType::Fragment)
+                .addAttachmentFormat(mn::Graphics::Image::B8G8R8A8_UNORM)
+                .setDepthFormat(mn::Graphics::Image::DF32_SU8)
+                .setPushConstantObject<GBufferPush>()
+                .setDepthTesting(false)
+                .setBackfaceCull(true)
+                .addSet(descriptor)
+                .build()
         ))
     {   }
 
@@ -62,21 +130,6 @@ namespace Engine::System
         if (gbuffers.size() < camera_query.count())
             gbuffers.resize(camera_query.count());
 
-        // Should probably set this per model
-        /*
-        std::vector<std::shared_ptr<Graphics::Backend::Sampler>> samplers;
-        std::vector<std::shared_ptr<Graphics::Image>> images;
-        
-        images.push_back(box_texture.get_image());
-        
-        {
-            auto& device = Graphics::Backend::Instance::get()->getDevice();
-            samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Nearest));
-            samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Linear));
-        }
-        
-        descriptor.update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
-        descriptor.update<Graphics::Descriptor::Binding::Image  >(1, images);*/
         //pipeline.getSet()->setImages(0, Graphics::Backend::Sampler::Nearest, images);
 
         // we can keep handle the descriptor set here as well
@@ -111,12 +164,22 @@ namespace Engine::System
             it += matrices.size();
         }
 
+        std::vector<Math::Vec3f> view_pos;
+        std::vector<std::shared_ptr<Graphics::Image>> camera_images;
+
         it = 0;
         camera_query.each(
-            [&](flecs::entity e, const Component::Camera& camera)
+            [this, &rf, &it, &camera_images, &view_pos](flecs::entity e, const Component::Camera& camera)
             {
                 const auto& attach = camera.surface->getAttachment<Graphics::Image::Color>();
-                rf.image_stack.push(camera.surface);
+
+                if (gbuffers[it].size != attach.size)
+                    gbuffers[it].rebuild(attach.size);
+
+                rf.image_stack.push(gbuffers[it].color);
+                camera_images.push_back(camera.surface);
+                view_pos.push_back(e.get<Component::Transform>()->position);
+
                 scene_data[it  ].view = ( e.has<Component::Transform>() ?
                     Math::translation(e.get<Component::Transform>()->position * -1.f) * Math::rotation<float>(e.get<Component::Transform>()->rotation * -1.0) :
                     Math::identity<4, float>()
@@ -133,6 +196,26 @@ namespace Engine::System
                 light_data[it++].color    = light.color;
             });
 
+        // Should probably set this per model
+        std::vector<std::shared_ptr<Graphics::Backend::Sampler>> samplers;
+        std::vector<std::shared_ptr<Graphics::Image>> images;
+        
+        for (auto& gb : gbuffers)
+        {
+            images.push_back(gb.color);
+            images.push_back(gb.position);
+            images.push_back(gb.normal);
+        }
+        
+        {
+            auto& device = Graphics::Backend::Instance::get()->getDevice();
+            samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Nearest));
+            samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Linear));
+        }
+        
+        descriptor.update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
+        descriptor.update<Graphics::Descriptor::Binding::Image  >(1, images);
+        
         /*
         struct CullInfo
         {
@@ -216,8 +299,15 @@ namespace Engine::System
                 instance_buffer[i] = i;
             }*/
 
-            rf.clear({ 0.f, 0.f, 0.f });
-            rf.startRender();
+            std::vector<std::shared_ptr<Graphics::Image>> images = { gbuffers[j].position, gbuffers[j].normal };
+            for (const auto& image : images)
+            {
+                rf.image_stack.push(image);
+                rf.clear({ 0.f, 0.f, 0.f }, 0.f);
+                rf.image_stack.pop();
+            }
+            rf.clear({ 0.f, 0.f, 0.f }, 0.f);
+            rf.startRender(images);
             for (std::size_t i = 0; i < offsets.size(); i++)
             {
                 if (!offsets[i].count) continue;
@@ -243,6 +333,76 @@ namespace Engine::System
 
             rf.endRender();
             rf.image_stack.pop();
+
+            rf.image_stack.push(camera_images[j]);
+            rf.clear({ 0.f, 0.f, 0.f });
+            rf.startRender();
+
+            rf.setPushConstant(*quad_pipeline, GBufferPush {
+                .light_count      = static_cast<uint32_t>(light_data.size()),
+                .lights           = light_data.getAddress(),
+                .view_pos = view_pos[j]
+            });
+
+            rf.draw(*quad_pipeline, quad_mesh);
+            rf.endRender();
+            rf.image_stack.pop();
         }
+    }
+    
+    void Renderer::drawOverlay() const
+    {
+        ImGui::Begin("Renderer");
+
+        ImGui::SeparatorText("Memory Info");
+        ImGui::Text("Cameras: %i", camera_query.count());
+        ImGui::Text("Lights:  %i", light_query.count());
+        ImGui::Text("Models:  %i", model_query.count());
+        ImGui::Text("Total GPU Memory: %lu kB", 
+            Util::convert<Util::Bytes, Util::Kilobytes>(brother_buffer.allocated() + instance_buffer.allocated() + scene_data.allocated() + light_data.allocated())
+        );
+
+        ImGui::SeparatorText((std::stringstream() << "G-Buffers: " << gbuffers.size()).str().c_str());
+        for (std::size_t i = 0; i < gbuffers.size(); i++)
+        {
+            if (ImGui::TreeNode((std::stringstream() << "G-Buffer " << i).str().c_str()))
+            {
+                // Display gbuffer
+                const auto& gbuffer = gbuffers[i];
+                if (!gbuffer.position)
+                    ImGui::Text("No position buffer");
+                else
+                {
+                    const auto& attach = gbuffer.position->getAttachment<mn::Graphics::Image::Color>();
+                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
+                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
+                    ImGui::Text("Position Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
+                }
+
+                if (!gbuffer.normal)
+                    ImGui::Text("No normal buffer");
+                else
+                {
+                    const auto& attach = gbuffer.normal->getAttachment<mn::Graphics::Image::Color>();
+                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
+                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
+                    ImGui::Text("Normal Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
+                }
+
+                if (!gbuffer.color)
+                    ImGui::Text("No color buffer");
+                else
+                {
+                    const auto& attach = gbuffer.color->getAttachment<mn::Graphics::Image::Color>();
+                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
+                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
+                    ImGui::Text("Color Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
+                }
+
+                ImGui::TreePop();
+            }
+        }
+
+        ImGui::End();
     }
 }

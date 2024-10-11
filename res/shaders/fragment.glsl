@@ -71,10 +71,13 @@ layout (std140, push_constant) uniform Constants
     uint offset;
 } constants;
 
-layout(set = 0, binding = 0) uniform sampler samplers[2];
-layout(set = 0, binding = 1) uniform texture2D textures[];
+//layout(set = 0, binding = 0) uniform sampler samplers[2];
+//layout(set = 0, binding = 1) uniform texture2D textures[];
 
-layout(location = 0) out vec4 outColor;
+//layout(location = 0) out vec4 outColor;
+layout(location = 0) out vec4 gAlbedoSpec;
+layout(location = 1) out vec4 gPosition;
+layout(location = 2) out vec4 gNormal;
 
 layout(location = 0) in vec4 inColor;
 layout(location = 1) in vec3 normal;
@@ -83,6 +86,11 @@ layout(location = 3) in vec3 view_pos;
 layout(location = 4) in vec2 tex_coords;
 
 void main() {
+    gPosition = vec4(position, 1);
+    gNormal = vec4(normalize(normal), 1);
+    //gNormal = normal;
+    gAlbedoSpec = vec4(inColor.xyz, 1.0);
+    /*
     outColor = vec4(0, 0, 0, 1);
     for (int i = 0; i < constants.light_count; i++)
     {
@@ -100,5 +108,5 @@ void main() {
     }
     //outColor = texture(textures[0], tex_coords) * inColor * (vec4(0.2, 0.2, 0.2, 1.0) + outColor);
     outColor = inColor * outColor;
-    outColor.w = 1.0;
+    outColor.w = 1.0;*/
 }

@@ -34,20 +34,20 @@ namespace Game
 
         auto obj_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/stanford-bunny.obj");
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 10; i++)
         {
-            for (int j = 0; j < 4; j++)
+            for (int j = 0; j < 10; j++)
             {
                 auto e = createEntity();
                 e.set(Component::Model{ .model = obj_model });
                 e.set(Component::Transform{ .position = 
                     { 
-                        8.f * (i - 2),
-                        8.f * (j - 2), 
+                        8.f * (i - 5),
+                        8.f * (j - 5), 
                         0.f
                     },
                     .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                    .scale = { 20.f, 20.f, 20.f }
+                    .scale = { 25.f, 25.f, 25.f }
                 });
                 e.add<Bunny>();
             }
@@ -169,6 +169,7 @@ namespace Game
         ImGui::Checkbox("Render Wireframe", &renderer.settings.wireframe);
         ImGui::End();
 
+        renderer.drawOverlay();
         renderOverlay();
     }
 
