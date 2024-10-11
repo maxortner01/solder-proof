@@ -46,8 +46,8 @@ namespace Engine
                         ImGui::SliderScalar("FOV", ImGuiDataType_Double, (double*)&camera->FOV, &min, &max);
                         ImGui::SliderFloat2("Near/Far", (float*)&camera->near_far, 0.001f, 1000.f);
                         
-                        const auto& color = camera->surface->getAttachment<mn::Graphics::Image::Color>();
-                        const auto& depth = camera->surface->getAttachment<mn::Graphics::Image::DepthStencil>();
+                        const auto& color = camera->surface->getColorAttachments()[0];
+                        const auto& depth = camera->surface->getDepthAttachment();
 
                         if (ImGui::BeginTable("texture_table", 2))
                         {
@@ -127,21 +127,22 @@ namespace Engine
                 {
                     if (ImGui::TreeNode("Attachments"))
                     {
-                        if (texture->get_image()->hasAttachment<mn::Graphics::Image::Color>())
+                        const auto& color_attachments = texture->get_image()->getColorAttachments();
+                        for (int i = 0; i < color_attachments.size(); i++)
                         {
-                            const auto& attachment = texture->get_image()->getAttachment<mn::Graphics::Image::Color>();
-                            if (ImGui::TreeNode("Color Attachment"))
+                            if (ImGui::TreeNode((std::stringstream() << "Color Attachment " << i).str().c_str()))
                             {
-                                ImGui::Text("Format: %u", attachment.format);
-                                ImGui::Text("Handle: %p", attachment.handle);
-                                if (attachment.imgui_ds)
-                                    ImGui::Image(reinterpret_cast<ImTextureID>(attachment.imgui_ds), ImVec2(100, 100));
+                                ImGui::Text("Format: %u", color_attachments[i].format);
+                                ImGui::Text("Handle: %p", color_attachments[i].handle);
+                                if (color_attachments[i].imgui_ds)
+                                    ImGui::Image(reinterpret_cast<ImTextureID>(color_attachments[i].imgui_ds), ImVec2(100, 100));
                                 ImGui::TreePop();
                             }
                         }
-                        if (texture->get_image()->hasAttachment<mn::Graphics::Image::DepthStencil>())
+
+                        if (texture->get_image()->hasDepthAttachment())
                         {
-                            const auto& attachment = texture->get_image()->getAttachment<mn::Graphics::Image::DepthStencil>();
+                            const auto& attachment = texture->get_image()->getDepthAttachment();
                             if (ImGui::TreeNode("Depth/Stencil Attachment"))
                             {
                                 ImGui::Text("Format: %u", attachment.format);

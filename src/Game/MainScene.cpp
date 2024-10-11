@@ -160,7 +160,7 @@ namespace Game
         
         renderer.render(rf);
 
-        rf.blit(camera.get<Component::Camera>()->surface, rf.image);
+        rf.blit(camera.get<Component::Camera>()->surface->getColorAttachments()[0], rf.image->getColorAttachments()[0]);
 
         if (!render_ui) return;
 
@@ -184,9 +184,11 @@ namespace Game
             [this](const Event::WindowSize& size)
             {
                 // Need to preserve the "low-res" image style
-                const auto* cam = camera.get<Engine::Component::Camera>();
-                cam->surface->rebuildAttachment<Image::Color>       (Image::B8G8R8A8_UNORM, { size.new_width, size.new_height });
-                cam->surface->rebuildAttachment<Image::DepthStencil>(Image::DF32_SU8,       { size.new_width, size.new_height });
+                auto* cam = camera.get_mut<Engine::Component::Camera>();
+                auto& attachments = cam->surface->getColorAttachments();
+                for (auto& a : attachments)
+                    a.rebuild<Image::Color>(Image::B8G8R8A8_UNORM, { size.new_width, size.new_height });
+                cam->surface->getDepthAttachment().rebuild<Image::DepthStencil>(Image::DF32_SU8, { size.new_width, size.new_height });
             },
             [this](const Event::MouseMove& move)
             {

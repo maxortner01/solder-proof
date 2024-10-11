@@ -54,7 +54,7 @@ namespace Engine::System
         struct GBuffer
         {
             mn::Math::Vec2u size;
-            std::shared_ptr<mn::Graphics::Image> position, normal, color;
+            std::shared_ptr<mn::Graphics::Image> gbuffer;
 
             GBuffer() = default;
 

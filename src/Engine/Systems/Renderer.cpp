@@ -11,35 +11,24 @@ namespace Engine::System
     {
         using namespace mn::Graphics;
 
-        if (!position)
-            position = std::make_shared<Image>(
-                ImageFactory()
-                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
-                    .build()
-            );
-        else
-            position->rebuildAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
-
-        if (!normal)
-            normal = std::make_shared<Image>(
-                ImageFactory()
-                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
-                    .build()
-            );
-        else
-            normal->rebuildAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
-
-        if (!color)
-            color = std::make_shared<Image>(
+        if (!gbuffer)
+        {
+            gbuffer = std::make_shared<Image>(
                 ImageFactory()
                     .addAttachment<Image::Color>(Image::R8G8B8A8_UNORM, size)
+                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
+                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
                     .addAttachment<Image::DepthStencil>(Image::DF32_SU8, size)
                     .build()
             );
+        }
         else
         {
-            color->rebuildAttachment<Image::Color>(Image::R8G8B8A8_UNORM, size);
-            color->rebuildAttachment<Image::DepthStencil>(Image::DF32_SU8, size);
+            auto& attachments = gbuffer->getColorAttachments();
+            attachments[0].rebuild<Image::Color>(Image::R8G8B8A8_UNORM, size);
+            attachments[1].rebuild<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
+            attachments[2].rebuild<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
+            gbuffer->getDepthAttachment().rebuild<Image::DepthStencil>(Image::DF32_SU8, size);
         }
 
         this->size = size;
@@ -171,12 +160,11 @@ namespace Engine::System
         camera_query.each(
             [this, &rf, &it, &camera_images, &view_pos](flecs::entity e, const Component::Camera& camera)
             {
-                const auto& attach = camera.surface->getAttachment<Graphics::Image::Color>();
+                const auto& attach = camera.surface->getColorAttachments()[0];
 
                 if (gbuffers[it].size != attach.size)
                     gbuffers[it].rebuild(attach.size);
 
-                rf.image_stack.push(gbuffers[it].color);
                 camera_images.push_back(camera.surface);
                 view_pos.push_back(e.get<Component::Transform>()->position);
 
@@ -201,11 +189,7 @@ namespace Engine::System
         std::vector<std::shared_ptr<Graphics::Image>> images;
         
         for (auto& gb : gbuffers)
-        {
-            images.push_back(gb.color);
-            images.push_back(gb.position);
-            images.push_back(gb.normal);
-        }
+            images.push_back(gb.gbuffer);
         
         {
             auto& device = Graphics::Backend::Instance::get()->getDevice();
@@ -232,16 +216,15 @@ namespace Engine::System
         //for (uint32_t i = 0; i < total_instance_count; i++)
             //instance_buffer[i] = i;
 
-        const auto size = rf.image_stack.size();
         // For now we only support one camera
         // In the future we may need to allocate instance buffers for each camera
         // Then create yet another buffer that contains pointers to each of these buffers
         // We can then index into it with scene_index
-        assert(size == 1);
+        assert(camera_query.count() == 1);
 
         // We could record individual command buffers for each image. Then, we could
         // Render build each camera's cmd buffer out in parallel, then submit them in the end
-        for (uint32_t j = 0; j < size; j++)
+        for (uint32_t j = 0; j < camera_query.count(); j++)
         {
             // For culling, we can create a list of instance indices
             //std::vector<CullInfo> out_instance_indices(total_instance_count);
@@ -299,15 +282,10 @@ namespace Engine::System
                 instance_buffer[i] = i;
             }*/
 
-            std::vector<std::shared_ptr<Graphics::Image>> images = { gbuffers[j].position, gbuffers[j].normal };
-            for (const auto& image : images)
-            {
-                rf.image_stack.push(image);
-                rf.clear({ 0.f, 0.f, 0.f }, 0.f);
-                rf.image_stack.pop();
-            }
             rf.clear({ 0.f, 0.f, 0.f }, 0.f);
-            rf.startRender(images);
+            rf.clear({ 0.f, 0.f, 0.f }, 0.f, gbuffers[j].gbuffer);
+           
+            rf.startRender(gbuffers[j].gbuffer);
             for (std::size_t i = 0; i < offsets.size(); i++)
             {
                 if (!offsets[i].count) continue;
@@ -332,11 +310,9 @@ namespace Engine::System
             }
 
             rf.endRender();
-            rf.image_stack.pop();
 
-            rf.image_stack.push(camera_images[j]);
-            rf.clear({ 0.f, 0.f, 0.f });
-            rf.startRender();
+            rf.clear({ 0.f, 0.f, 0.f }, 0.f, camera_images[j]);
+            rf.startRender(camera_images[j]);
 
             rf.setPushConstant(*quad_pipeline, GBufferPush {
                 .light_count      = static_cast<uint32_t>(light_data.size()),
@@ -346,7 +322,6 @@ namespace Engine::System
 
             rf.draw(quad_pipeline, quad_mesh);
             rf.endRender();
-            rf.image_stack.pop();
         }
     }
     
@@ -369,35 +344,22 @@ namespace Engine::System
             {
                 // Display gbuffer
                 const auto& gbuffer = gbuffers[i];
-                if (!gbuffer.position)
-                    ImGui::Text("No position buffer");
-                else
+                const auto& attachments = gbuffer.gbuffer->getColorAttachments();
+                for (const auto& a : attachments)
                 {
-                    const auto& attach = gbuffer.position->getAttachment<mn::Graphics::Image::Color>();
-                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
-                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
-                    ImGui::Text("Position Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
+                    auto rf = (float)mn::Math::x(a.size) / (float)mn::Math::y(a.size);
+                    ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(160 * rf, 160));
+                    ImGui::Text("Size (%u, %u), Handle %p", mn::Math::x(a.size), mn::Math::y(a.size), a.handle);
                 }
 
-                if (!gbuffer.normal)
-                    ImGui::Text("No normal buffer");
-                else
+                /*
+                if (gbuffer.gbuffer->hasDepthAttachment())
                 {
-                    const auto& attach = gbuffer.normal->getAttachment<mn::Graphics::Image::Color>();
-                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
-                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
-                    ImGui::Text("Normal Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
-                }
-
-                if (!gbuffer.color)
-                    ImGui::Text("No color buffer");
-                else
-                {
-                    const auto& attach = gbuffer.color->getAttachment<mn::Graphics::Image::Color>();
-                    auto rf = (float)mn::Math::x(attach.size) / (float)mn::Math::y(attach.size);
-                    ImGui::Image((ImTextureID)attach.imgui_ds, ImVec2(160 * rf, 160));
-                    ImGui::Text("Color Image, Size (%u, %u), Handle %p", mn::Math::x(attach.size), mn::Math::y(attach.size), attach.handle);
-                }
+                    const auto& a = gbuffer.gbuffer->getDepthAttachment();
+                    auto rf = (float)mn::Math::x(a.size) / (float)mn::Math::y(a.size);
+                    ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(160 * rf, 160));
+                    ImGui::Text("Size (%u, %u), Handle %p", mn::Math::x(a.size), mn::Math::y(a.size), a.handle);
+                }*/
 
                 ImGui::TreePop();
             }
