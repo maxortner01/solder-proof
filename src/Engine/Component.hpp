@@ -5,6 +5,15 @@
 #include "ResourceManager.hpp"
 #include "Model.hpp"
 
+/*
+namespace Engine::Rendering
+{
+    struct GBuffer
+    {
+        std::shared_ptr<mn::Graphics::Image> position, normals, albedo, specular, lighting;
+    };
+}*/
+
 namespace Engine::Component
 {
     struct Transform

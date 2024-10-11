@@ -2,9 +2,12 @@
 
 #include <midnight/midnight.hpp>
 
+#include "ResourceManager.hpp"
+
 #include <vector>
 #include <memory>
 #include <chrono>
+#include <flecs.h>
 
 namespace Engine
 {
@@ -27,6 +30,21 @@ namespace Engine
         virtual void poll(mn::Graphics::Event&) = 0;
 
     protected:
+        flecs::entity createEntity(std::string name = "")
+        {
+            auto e = world.entity((name.length() ? name.c_str() : nullptr));
+            entities.push_back(e);
+            return e;
+        }
+
+        void renderOverlay() const;
+
+        flecs::world world;
+        Engine::ResourceManager res;
+
+        // Needed only for overlay
+        std::vector<flecs::entity> entities;
+
         std::shared_ptr<mn::Graphics::Window> window;
     };
 

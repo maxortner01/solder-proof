@@ -6,7 +6,7 @@
 
 #include "../Engine/Systems/Renderer.hpp"
 
-#include <set>
+#include "../Engine/Component.hpp"
 
 #include <flecs.h>
 
@@ -33,6 +33,8 @@
 
 namespace Game
 {
+    struct Bunny { };
+
     struct MainScene : Engine::Scene
     {
         struct SceneData
@@ -41,15 +43,12 @@ namespace Game
         };
 
         flecs::entity camera, light, light2;
-        flecs::world world;
         double total_time = 0.0;
 
-        std::set<char> keys;
+        std::vector<double> fpses;
 
-        Engine::ResourceManager res;
-        Engine::System::Renderer renderer;
-
-        std::vector<flecs::entity> entities;
+        flecs::query<Bunny, Engine::Component::Transform> bunnies;
+        mutable Engine::System::Renderer renderer;
 
         MainScene(std::shared_ptr<mn::Graphics::Window> window);
 
@@ -61,6 +60,11 @@ namespace Game
 
         void 
         poll(mn::Graphics::Event& e) override;
+
+    private:
+        double get_fps() const;
+
+        std::size_t frame_index;
 
         bool done = false;
         bool render_ui = true;

@@ -7,10 +7,10 @@ Polygon = {
 }
 
 Pipeline = {
-    shaders = {
-        vertex   = "/shaders/vertex.glsl",
-        fragment = "/shaders/fragment.glsl"
-    },
+    -- shaders = {
+       -- vertex   = "/shaders/vertex.glsl",
+      --  fragment = "/shaders/fragment.glsl"
+    --},
     colorFormat = VK_FORMAT_B8G8R8A8_UNORM,
     depthFormat = VK_FORMAT_D32_SFLOAT_S8_UINT,
     depthTesting    = true,

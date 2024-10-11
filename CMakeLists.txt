@@ -13,6 +13,7 @@ add_executable(main
     main.cpp 
     ${CMAKE_SOURCE_DIR}/src/Engine/Systems/Renderer.cpp
     ${CMAKE_SOURCE_DIR}/src/Engine/Model.cpp
+    ${CMAKE_SOURCE_DIR}/src/Engine/Application.cpp
     ${CMAKE_SOURCE_DIR}/src/Game/MainScene.cpp)
     
 target_link_libraries(main PRIVATE midnight-graphics simple-lua flecs assimp::assimp)

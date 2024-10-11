@@ -18,17 +18,27 @@ namespace Game
 
     MainScene::MainScene(std::shared_ptr<mn::Graphics::Window> window) :
         Scene(window),
-        renderer(world, "/shaders/main.lua")
+        renderer(world, [this]()
+            {
+                auto vertex   = res.create<mn::Graphics::Shader>("vertex_shader",   RES_DIR "/shaders/vertex.glsl",   mn::Graphics::ShaderType::Vertex);
+                auto fragment = res.create<mn::Graphics::Shader>("fragment_shader", RES_DIR "/shaders/fragment.glsl", mn::Graphics::ShaderType::Fragment);
+                return mn::Graphics::PipelineBuilder::fromLua(RES_DIR, "/shaders/main.lua")
+                    .addShader(vertex.value)
+                    .addShader(fragment.value);
+            }()),
+        frame_index{0},
+        fpses(50, 0.0),
+        bunnies(world.query_builder<Bunny, Engine::Component::Transform>().build())
     {   
         using namespace Engine;
 
-        auto obj_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj");
+        auto obj_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/stanford-bunny.obj");
 
         for (int i = 0; i < 4; i++)
         {
             for (int j = 0; j < 4; j++)
             {
-                auto e = world.entity();
+                auto e = createEntity();
                 e.set(Component::Model{ .model = obj_model });
                 e.set(Component::Transform{ .position = 
                     { 
@@ -36,33 +46,24 @@ namespace Game
                         8.f * (j - 2), 
                         0.f
                     },
-                    //.scale = { 18.6f, 18.6f, 18.6f }
                     .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                    .scale = { 0.04f, 0.04f, 0.04f }
+                    .scale = { 20.f, 20.f, 20.f }
                 });
-                /*
-                e.set(Component::Transform{ .position = 
-                    { 
-                        ((rand() % 1000) / 500.f - 1.f) *  40.f, 
-                        ((rand() % 1000) / 500.f - 1.f) *  40.f, 
-                        ((rand() % 1000) / 500.f - 1.f) * -40.f - 10.f
-                    },
-                    //.scale = { 18.6f, 18.6f, 18.6f }
-                    .scale = { 0.04f, 0.04f, 0.04f }
-                });*/
-                entities.push_back(e);
+                e.add<Bunny>();
             }
         }
 
-        camera = world.entity();
+        res.create<mn::Graphics::Texture>("box_texture", RES_DIR "/textures/box.png");
+
+        camera = createEntity("camera");
         camera.set(Component::Camera::make({ 1280U / 2, 720U / 2 }, mn::Math::Angle::degrees(90), { 0.1f, 500.f }));
         camera.set(Component::Transform{ .position = { 0.f, 0.f, 5.f } });
 
-        light = world.entity();
+        light = createEntity("light");
         light.set(Component::Transform{ .position = { 0.f, 15.f, 0.f } });
         light.set(Component::Light{ .color = { 0.1f, 0.5f, 0.4f }, .intensity = 550.f });
 
-        light2 = world.entity();
+        light2 = createEntity("light2");
         light2.set(Component::Transform{ .position = { 0.f, -15.f, 0.f } });
         light2.set(Component::Light{ .color = { 1.f, 0.6f, 0.1f }, .intensity = 550.f });
     }
@@ -75,7 +76,12 @@ namespace Game
         using namespace Engine;
 
         if (move_mouse)
+        {
             window->setMousePos((Vec2f)window->size() / 2.f);
+            window->showMouse(false);
+        }
+        else
+            window->showMouse(true);
 
         static std::size_t index = 0;
 
@@ -129,23 +135,19 @@ namespace Game
 
         total_time += dt;
 
-        //float _x = 1.f;
-        for (const auto& e : entities)
-        {
-            //z(e.get_mut<Component::Transform>()->rotation) += Angle::degrees(5.0 * dt);
-            y(e.get_mut<Component::Transform>()->rotation) += Angle::degrees(20.0 * dt);
-            //_x += 0.01f;
-        }
+        bunnies.each(
+            [&dt](Bunny, Engine::Component::Transform& transform)
+            {
+                y(transform.rotation) += Angle::degrees(20.0 * dt);
+            });
 
-        //y(light2.get_mut<Component::Transform>()->position) = 40.f * sin(2.5f * total_time);
+
         x(light2.get_mut<Component::Transform>()->position) = 40.f * sin(-1.5f * total_time);
         x(light.get_mut<Component::Transform>()->position) = 40.f * sin(1.5f * total_time);
-        //z(light.get_mut<Component::Transform>()->position) = 40.f * cos(2.5f * total_time);
-        //std::cout << x(light.get_mut<Component::Transform>()->position) << "\n";
 
-        z(camera.get_mut<Component::Transform>()->position) -= 0.5f * dt;
+        fpses[frame_index % fpses.size()] = 1.0 / dt;
+        frame_index++;
 
-        //return { ( total_time >= 2.0 ) };
         return { done };
     }
 
@@ -162,62 +164,12 @@ namespace Game
 
         if (!render_ui) return;
 
-        /*
         ImGui::Begin("Rendering");
-        ImGui::Checkbox("Render Wireframe", &renderer.render_wireframe)
-        ImGui::End();*/
-
-        ImGui::Begin("Entities");
-        for (const auto& e : entities)
-        {
-            std::string text = std::string((e.name().size() ? e.name().c_str() : "Unnamed entity")) + " (id: " + std::to_string(e.raw_id()) + ")";
-            if (ImGui::CollapsingHeader(text.c_str()))
-            {
-                if (e.has<Component::Transform>())
-                {
-                    double min = -mn::Math::Angle::PI.asRadians();
-                    double max =  mn::Math::Angle::PI.asRadians();
-                    const auto* transform = e.get<Component::Transform>();
-                    ImGui::SeparatorText("Transform");
-                    ImGui::SliderFloat3("Position", (float*)&transform->position, -25.f, 25.f);
-                    ImGui::SliderScalarN("Rotation", ImGuiDataType_Double, (double*)&transform->rotation, 3, &min, &max);
-                    ImGui::SliderFloat3("Scale", (float*)&transform->scale, 0.f, 10.f);
-                }
-                if (e.has<Component::Model>())
-                {
-                    const auto* model = e.get<Component::Model>();
-                    ImGui::SeparatorText("Model");
-                    ImGui::Text("Resource Name: %s", model->model.name.c_str());
-                }
-            }
-        }
+        ImGui::Text("FPS: %u", static_cast<uint32_t>(get_fps()));
+        ImGui::Checkbox("Render Wireframe", &renderer.settings.wireframe);
         ImGui::End();
 
-        // Nicer way to do this
-        ImGui::Begin("Resources");
-        if (ImGui::CollapsingHeader("Strings"))
-        {
-            auto string_map = res.get_type_map<std::string>();
-            for (const auto& [ name, str_ptr ] : string_map)
-                if (ImGui::CollapsingHeader(name.c_str()))
-                {
-                    ImGui::Text("Value: %s", str_ptr->c_str());
-                }
-        }
-        if (ImGui::CollapsingHeader("Models"))
-        {
-            auto model_map = res.get_type_map<Engine::Model>();
-            for (const auto& [ name, model_ptr ] : model_map)
-                if (ImGui::CollapsingHeader(name.c_str()))
-                {
-                    const auto& meshes = model_ptr->getMeshes();
-                    ImGui::Text("%lu kB", Util::convert<Util::Bytes, Util::Kilobytes>(model_ptr->allocated()));
-                    ImGui::Text("Contains %lu meshes", meshes.size());
-                    for (const auto& mesh : meshes) ImGui::Text("  %lu vertices, %lu indices", mesh.mesh->vertexCount(), mesh.mesh->indexCount());
-                    
-                }
-        }
-        ImGui::End();
+        renderOverlay();
     }
 
     void 
@@ -230,6 +182,7 @@ namespace Game
             [](const auto&) {},
             [this](const Event::WindowSize& size)
             {
+                // Need to preserve the "low-res" image style
                 const auto* cam = camera.get<Engine::Component::Camera>();
                 cam->surface->rebuildAttachment<Image::Color>       (Image::B8G8R8A8_UNORM, { size.new_width, size.new_height });
                 cam->surface->rebuildAttachment<Image::DepthStencil>(Image::DF32_SU8,       { size.new_width, size.new_height });
@@ -256,5 +209,13 @@ namespace Game
                 done = true;
             }
         }, e.event);
+    }
+
+    double MainScene::get_fps() const
+    {
+        double acc = 0.0;
+        for (uint32_t i = 0; i < frame_index && i < fpses.size(); i++)
+            acc += fpses[i];
+        return ( frame_index == 0 ? 0.0 : acc / std::min<double>(frame_index, fpses.size()) );
     }
 }

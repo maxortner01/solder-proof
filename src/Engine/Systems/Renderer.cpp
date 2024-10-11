@@ -4,7 +4,7 @@
 
 namespace Engine::System
 {
-    Renderer::Renderer(flecs::world _world, const std::string& luafile) : 
+    Renderer::Renderer(flecs::world _world, const mn::Graphics::PipelineBuilder& builder) : 
         world{_world},
         model_query(_world.query_builder<const Component::Model, const Component::Transform>()
             .cached()
@@ -25,19 +25,19 @@ namespace Engine::System
                 .addBinding(mn::Graphics::Descriptor::Binding{ .type = mn::Graphics::Descriptor::Binding::Sampler, .count = 2 })
                 .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 640)
                 .build()),
-        pipeline(mn::Graphics::PipelineBuilder()
-            .fromLua(RES_DIR, luafile)
-            .setPushConstantObject<PushConstant>()
-            .addSet(descriptor)
-            .build()),
-        box_texture(RES_DIR "/textures/box.png")
-    {   
-        surface = std::make_shared<mn::Graphics::Image>(
-            mn::Graphics::ImageFactory()
-                .addAttachment<mn::Graphics::Image::Color>(mn::Graphics::Image::B8G8R8A8_UNORM, { 1280U / 2, 720U / 2 })
-                .build()
-        );
-    }
+        pipeline(std::make_shared<mn::Graphics::Pipeline>(
+            [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
+            {
+                return std::move(builder.setPushConstantObject<PushConstant>().build());
+            }(builder)
+        )),
+        wireframe_pipeline(std::make_shared<mn::Graphics::Pipeline>(
+            [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
+            {
+                return std::move(builder.setPushConstantObject<PushConstant>().setPolyMode(mn::Graphics::Polygon::Wireframe).build());
+            }(builder)
+        ))
+    {   }
 
     void Renderer::render(mn::Graphics::RenderFrame& rf) const
     {
@@ -58,7 +58,12 @@ namespace Engine::System
         scene_data.resize(camera_query.count()); 
         light_data.resize(light_query.count());
 
+        // Create as many gbuffers as we need this frame to accomodate for all the cameras
+        if (gbuffers.size() < camera_query.count())
+            gbuffers.resize(camera_query.count());
+
         // Should probably set this per model
+        /*
         std::vector<std::shared_ptr<Graphics::Backend::Sampler>> samplers;
         std::vector<std::shared_ptr<Graphics::Image>> images;
         
@@ -71,7 +76,7 @@ namespace Engine::System
         }
         
         descriptor.update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
-        descriptor.update<Graphics::Descriptor::Binding::Image  >(1, images);
+        descriptor.update<Graphics::Descriptor::Binding::Image  >(1, images);*/
         //pipeline.getSet()->setImages(0, Graphics::Backend::Sampler::Nearest, images);
 
         // we can keep handle the descriptor set here as well
@@ -222,7 +227,7 @@ namespace Engine::System
                     offsets[i + 1].offset - offsets[i].offset
                 );
 
-                rf.setPushConstant(pipeline, PushConstant {
+                rf.setPushConstant(*(settings.wireframe ? wireframe_pipeline : pipeline), PushConstant {
                     .scene_index      = j, 
                     .offset           = static_cast<uint32_t>(offsets[i].offset),
                     .light_count      = static_cast<uint32_t>(light_data.size()),
@@ -233,7 +238,7 @@ namespace Engine::System
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
-                rf.draw(pipeline, offsets[i].model, offsets[i].count); //instances);
+                rf.draw(*(settings.wireframe ? wireframe_pipeline : pipeline), offsets[i].model, offsets[i].count); //instances);
             }
 
             rf.endRender();
