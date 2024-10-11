@@ -90,7 +90,6 @@ namespace Engine
                 //rf.draw(pipeline, model);
                 scenes.back()->render(rf);
 
-
 		        window->endFrame(rf);
 
                 if (new_scene.destroy)    scenes.pop_back();

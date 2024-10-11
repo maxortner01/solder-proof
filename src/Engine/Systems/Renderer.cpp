@@ -61,11 +61,11 @@ namespace Engine::System
         light_query(_world.query_builder<const Component::Light, const Component::Transform>()
             .cached()
             .build()),
-        descriptor(
-            mn::Graphics::DescriptorBuilder()
+        descriptor(std::make_shared<mn::Graphics::Descriptor>(
+            std::move(mn::Graphics::DescriptorBuilder()
                 .addBinding(mn::Graphics::Descriptor::Binding{ .type = mn::Graphics::Descriptor::Binding::Sampler, .count = 2 })
                 .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 3)
-                .build()),
+                .build()))),
         pipeline(std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
             {
@@ -78,7 +78,7 @@ namespace Engine::System
                 return std::move(builder.setPushConstantObject<PushConstant>().setPolyMode(mn::Graphics::Polygon::Wireframe).build());
             }(builder)
         )),
-        quad_mesh(mn::Graphics::Mesh::fromFrame([]()
+        quad_mesh(std::make_shared<mn::Graphics::Mesh>(mn::Graphics::Mesh::fromFrame([]()
         {
             mn::Graphics::Mesh::Frame frame;
 
@@ -92,7 +92,7 @@ namespace Engine::System
             frame.indices = { 1, 0, 2, 3, 2, 0 };
 
             return frame;
-        }())),
+        }()))),
         quad_pipeline(std::make_shared<mn::Graphics::Pipeline>(
             mn::Graphics::PipelineBuilder() 
                 .addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex)
@@ -213,8 +213,8 @@ namespace Engine::System
             samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Linear));
         }
         
-        descriptor.update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
-        descriptor.update<Graphics::Descriptor::Binding::Image  >(1, images);
+        descriptor->update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
+        descriptor->update<Graphics::Descriptor::Binding::Image  >(1, images);
         
         /*
         struct CullInfo
@@ -328,7 +328,7 @@ namespace Engine::System
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
-                rf.draw(*(settings.wireframe ? wireframe_pipeline : pipeline), offsets[i].model, offsets[i].count); //instances);
+                rf.draw((settings.wireframe ? wireframe_pipeline : pipeline), offsets[i].model, offsets[i].count); //instances);
             }
 
             rf.endRender();
@@ -344,7 +344,7 @@ namespace Engine::System
                 .view_pos = view_pos[j]
             });
 
-            rf.draw(*quad_pipeline, quad_mesh);
+            rf.draw(quad_pipeline, quad_mesh);
             rf.endRender();
             rf.image_stack.pop();
         }

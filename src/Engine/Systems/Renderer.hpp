@@ -62,6 +62,7 @@ namespace Engine::System
         };
 
         Renderer(flecs::world _world, const mn::Graphics::PipelineBuilder& builder);
+        
         void render(mn::Graphics::RenderFrame& rf) const;
 
         void drawOverlay() const;
@@ -75,9 +76,9 @@ namespace Engine::System
         flecs::query<const Component::Light, const Component::Transform> light_query;
         flecs::query<const Component::Model, const Component::Transform> model_query;
 
-        mn::Graphics::Mesh quad_mesh;
+        std::shared_ptr<mn::Graphics::Mesh> quad_mesh;
 
-        mutable mn::Graphics::Descriptor descriptor;
+        std::shared_ptr<mn::Graphics::Descriptor> descriptor;
         std::shared_ptr<mn::Graphics::Pipeline> pipeline, wireframe_pipeline, quad_pipeline;
         mutable mn::Graphics::TypeBuffer<InstanceData> brother_buffer;
         mutable mn::Graphics::TypeBuffer<uint32_t> instance_buffer;
