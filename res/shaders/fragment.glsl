@@ -69,6 +69,7 @@ layout (std140, push_constant) uniform Constants
     uint scene_index;
     uint light_count;
     uint offset;
+    uint enable_lighting;
 } constants;
 
 //layout(set = 0, binding = 0) uniform sampler samplers[2];
@@ -86,7 +87,7 @@ layout(location = 3) in vec3 view_pos;
 layout(location = 4) in vec2 tex_coords;
 
 void main() {
-    gPosition = vec4(position, 1);
+    gPosition = vec4(position, constants.enable_lighting);
     gNormal = vec4(normalize(normal), 1);
     //gNormal = normal;
     gAlbedoSpec = vec4(inColor.xyz, 1.0);

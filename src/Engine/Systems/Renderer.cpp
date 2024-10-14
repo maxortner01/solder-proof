@@ -31,6 +31,15 @@ namespace Engine::System
             gbuffer->getDepthAttachment().rebuild<Image::DepthStencil>(Image::DF32_SU8, size);
         }
 
+        if (!hdr_surface)
+            hdr_surface = std::make_shared<Image>(
+                ImageFactory()
+                    .addAttachment<Image::Color>(Image::R16G16B16A16_SFLOAT, size)
+                    .build()
+            );
+        else
+            hdr_surface->getColorAttachments()[0].rebuild<Image::Color>(Image::R16G16B16A16_SFLOAT, size);
+
         this->size = size;
     }
 
@@ -53,7 +62,7 @@ namespace Engine::System
         descriptor(std::make_shared<mn::Graphics::Descriptor>(
             std::move(mn::Graphics::DescriptorBuilder()
                 .addBinding(mn::Graphics::Descriptor::Binding{ .type = mn::Graphics::Descriptor::Binding::Sampler, .count = 2 })
-                .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 3)
+                .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 4)
                 .build()))),
         pipeline(std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
@@ -64,7 +73,10 @@ namespace Engine::System
         wireframe_pipeline(std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
             {
-                return std::move(builder.setPushConstantObject<PushConstant>().setPolyMode(mn::Graphics::Polygon::Wireframe).build());
+                return std::move(builder.setPushConstantObject<PushConstant>()
+                    .setBackfaceCull(false)
+                    .setPolyMode(mn::Graphics::Polygon::Wireframe)
+                    .build());
             }(builder)
         )),
         quad_mesh(std::make_shared<mn::Graphics::Mesh>(mn::Graphics::Mesh::fromFrame([]()
@@ -82,24 +94,46 @@ namespace Engine::System
 
             return frame;
         }()))),
-        quad_pipeline(std::make_shared<mn::Graphics::Pipeline>(
-            mn::Graphics::PipelineBuilder() 
-                .addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex)
-                .addShader(RES_DIR "/shaders/quad.fragment.glsl", mn::Graphics::ShaderType::Fragment)
-                .addAttachmentFormat(mn::Graphics::Image::B8G8R8A8_UNORM)
-                .setDepthFormat(mn::Graphics::Image::DF32_SU8)
-                .setPushConstantObject<GBufferPush>()
-                .setDepthTesting(false)
-                .setBackfaceCull(true)
-                .addSet(descriptor)
-                .build()
-        ))
-    {   }
+        cube_model(std::make_shared<Engine::Model>(RES_DIR "/models/cube.obj")),
+        profiler(std::make_shared<Util::Profiler>())
+    {   
+        mn::Graphics::PipelineBuilder quad_builder;
+        quad_builder.addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex);
+        quad_builder.setDepthTesting(false);
+        quad_builder.setBackfaceCull(true);
+        quad_builder.addSet(descriptor);
+
+        quad_pipeline = std::make_shared<mn::Graphics::Pipeline>(
+            [](mn::Graphics::PipelineBuilder builder)
+            {
+                return builder
+                    .addShader(RES_DIR "/shaders/quad.fragment.glsl", mn::Graphics::ShaderType::Fragment)
+                    .addAttachmentFormat(mn::Graphics::Image::R16G16B16A16_SFLOAT)
+                    .setPushConstantObject<GBufferPush>()
+                    .build();
+            }(quad_builder)
+        );
+
+        hdr_pipeline = std::make_shared<mn::Graphics::Pipeline>(
+            [](mn::Graphics::PipelineBuilder builder)
+            {
+                return builder
+                    .addShader(RES_DIR "/shaders/hdr.fragment.glsl", mn::Graphics::ShaderType::Fragment)
+                    .addAttachmentFormat(mn::Graphics::Image::B8G8R8A8_UNORM)
+                    .setDepthFormat(mn::Graphics::Image::DF32_SU8)
+                    .setPushConstantObject<HDRPush>()
+                    .build();
+            }(quad_builder)
+        );
+    }
 
     void Renderer::render(mn::Graphics::RenderFrame& rf) const
     {
-        // [ ] Here we will have actual models, which might contain multiple meshes
+        // [x] Here we will have actual models, which might contain multiple meshes
         //     Maybe, we create a unordered_map<std::shared_ptr<Graphics::Mesh>, std::vector<Mat4<float>>>
+        // [ ] Next, we want to visualize the bounding boxes. So maybe we also load a box mesh into the renderer
+        //     and have an option in the settings for drawing it. Drawing it is just as simple as adding a draw call with
+        //     the wireframe pipeline with the box mesh right after we draw the model instances (same arguments and everything)
 
         using namespace mn;
 
@@ -128,6 +162,8 @@ namespace Engine::System
         std::unordered_map<
             std::shared_ptr<Graphics::Mesh>, 
             std::vector<InstanceData>> instance_data;
+
+        auto flecs_block = profiler->beginBlock("FlecsBlock");
 
         model_query.each(
             [&](const Component::Model& model, const Component::Transform& transform)
@@ -184,12 +220,19 @@ namespace Engine::System
                 light_data[it++].color    = light.color;
             });
 
+        profiler->endBlock(flecs_block, "FlecsBlock");
+
+        const auto desc_write = profiler->beginBlock("DescWrite");
+
         // Should probably set this per model
         std::vector<std::shared_ptr<Graphics::Backend::Sampler>> samplers;
         std::vector<std::shared_ptr<Graphics::Image>> images;
         
         for (auto& gb : gbuffers)
+        {
             images.push_back(gb.gbuffer);
+            images.push_back(gb.hdr_surface);
+        }
         
         {
             auto& device = Graphics::Backend::Instance::get()->getDevice();
@@ -199,22 +242,8 @@ namespace Engine::System
         
         descriptor->update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
         descriptor->update<Graphics::Descriptor::Binding::Image  >(1, images);
-        
-        /*
-        struct CullInfo
-        {
-            uint32_t instance_index = -1;
-            // Bounding box information
-        };*/
 
-        /*
-        std::vector<CullInfo> in_instance_indices(total_instance_count);
-        for (uint32_t i = 0; i < total_instance_count; i++)
-            in_instance_indices[i] = CullInfo { .instance_index = i };*/
-
-        
-        //for (uint32_t i = 0; i < total_instance_count; i++)
-            //instance_buffer[i] = i;
+        profiler->endBlock(desc_write, "DescWrite");
 
         // For now we only support one camera
         // In the future we may need to allocate instance buffers for each camera
@@ -222,16 +251,10 @@ namespace Engine::System
         // We can then index into it with scene_index
         assert(camera_query.count() == 1);
 
-        // We could record individual command buffers for each image. Then, we could
-        // Render build each camera's cmd buffer out in parallel, then submit them in the end
+        const auto cmd_record = profiler->beginBlock("CmdRecord");
+
         for (uint32_t j = 0; j < camera_query.count(); j++)
         {
-            // For culling, we can create a list of instance indices
-            //std::vector<CullInfo> out_instance_indices(total_instance_count);
-            // For each camera, we take the camera info and in_instance_indices,
-            // and then cull. The output of the algorithm should be the remaining instances
-            // Something like this
-
             instance_buffer.resize(total_instance_count);
             for (int i = 0; i < total_instance_count; i++)
                 instance_buffer[i] = i;
@@ -247,72 +270,71 @@ namespace Engine::System
                 std::size_t index = 0;
                 while (index < instances)
                 {
-                    // Cull
+                    // Cull here
                     bool within_view = true;
 
+                    //   If within view, index++
                     if (within_view) index++;
+                    //   else, swap with offsets[i].offset + instances, then instances--
                     else
                     {
                         std::swap(instance_buffer[index], instance_buffer[offsets[i].offset + instances - 1]);
                         instances--;
                     }
-                    //   If within view, index++
-                    //   else, swap with offsets[i].offset + instances, then instances--
                 }
                 offsets[i].count = index;
-                /*
-                for (int j = 0; j < instances; j++)
-                {
-                    // Cull, 
-
-                    //instance_buffer[offsets[i].offset + j] = offsets[i].offset + j;
-                }*/
             }
-            /*
-            auto offset_it = offsets.begin();
-            std::size_t current_index = 0, start_index = 0;
-            for (uint32_t i = 0; i < total_instance_count; i++)
-            {
-                if (i > 0 && i == offset_it->offset) 
-                {
-                    offset_it->offset = start_index;
-                    offset_it++;
-
-                }
-                instance_buffer[i] = i;
-            }*/
 
             rf.clear({ 0.f, 0.f, 0.f }, 0.f);
             rf.clear({ 0.f, 0.f, 0.f }, 0.f, gbuffers[j].gbuffer);
            
             rf.startRender(gbuffers[j].gbuffer);
+
+            const auto use_pipeline = (settings.wireframe ? wireframe_pipeline : pipeline);
+            rf.bind(use_pipeline);
+            
             for (std::size_t i = 0; i < offsets.size(); i++)
             {
                 if (!offsets[i].count) continue;
-                // Calculate count
-                const auto instances = ( i == offsets.size() - 1 ?
-                    brother_buffer.size() - offsets[i].offset :
-                    offsets[i + 1].offset - offsets[i].offset
-                );
 
-                rf.setPushConstant(*(settings.wireframe ? wireframe_pipeline : pipeline), PushConstant {
+                rf.setPushConstant(*use_pipeline, PushConstant {
                     .scene_index      = j, 
                     .offset           = static_cast<uint32_t>(offsets[i].offset),
                     .light_count      = static_cast<uint32_t>(light_data.size()),
                     .lights           = light_data.getAddress(),
                     .scene_data       = scene_data.getAddress(),
                     .instance_indices = instance_buffer.getAddress(),
-                    .models           = reinterpret_cast<void*>( reinterpret_cast<std::size_t>(brother_buffer.getAddress()) + offsets[i].offset )
+                    .models           = brother_buffer.getAddress(),
+                    .enable_lighting  = 1
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
-                rf.draw((settings.wireframe ? wireframe_pipeline : pipeline), offsets[i].model, offsets[i].count); //instances);
+                rf.draw(offsets[i].model, offsets[i].count); //instances);
+                /*
+                rf.bind(wireframe_pipeline);
+
+                rf.setPushConstant(*use_pipeline, PushConstant {
+                    .scene_index      = j, 
+                    .offset           = static_cast<uint32_t>(offsets[i].offset),
+                    .light_count      = static_cast<uint32_t>(light_data.size()),
+                    .lights           = light_data.getAddress(),
+                    .scene_data       = scene_data.getAddress(),
+                    .instance_indices = instance_buffer.getAddress(),
+                    .models           = brother_buffer.getAddress(),
+                    .enable_lighting  = 0
+                });
+
+                rf.draw(cube_model->getMeshes()[0].mesh, offsets[i].count);*/
             }
+
+            // If draw_bounding_box
+            // We need to have a copy of the brother_buffer here and calculate the correct model transform 
+            // to make the cube fit the min/max of the aabb box. Do push constant and everything exactly the same 
 
             rf.endRender();
 
-            rf.clear({ 0.f, 0.f, 0.f }, 0.f, camera_images[j]);
-            rf.startRender(camera_images[j]);
+            rf.clear({ 0.f, 0.f, 0.f }, 0.f, gbuffers[j].hdr_surface);
+            rf.startRender(gbuffers[j].hdr_surface);
 
             rf.setPushConstant(*quad_pipeline, GBufferPush {
                 .light_count      = static_cast<uint32_t>(light_data.size()),
@@ -320,9 +342,39 @@ namespace Engine::System
                 .view_pos = view_pos[j]
             });
 
+            // Take our scene and render it into the HDR surface doing the normal lighting
+            // calculations
             rf.draw(quad_pipeline, quad_mesh);
+
+            rf.endRender();
+
+            // TODO: Here run a compute shader that goes through all the pixels and atomicAdd's the
+            // brightness / (total pixel count) of each one to a storage buffer within the Gbuffer class
+            // We put a barrier here so the next drawing commands wait on the execution of the compute shader
+            // Once this is completed, *then* we run the hdr shader, which can read from this buffer to get
+            // the L_avg of the scene, which it can then use to calculate the exposure needed to correctly render
+            // the scene
+
+            // Then we take this image and render onto the camera surface with the HDR shader
+            // The HDR shader should start out doing basic tone mapping
+            // Then, we can integrate further stages like automatic exposure which we can do by extracting
+            // the luminance histogram data using a compute shader
+            // https://bruop.github.io/exposure/
+
+            rf.clear({ 0.f, 0.f, 0.f }, 0.f, camera_images[j]);
+            rf.startRender(camera_images[j]);
+
+            rf.setPushConstant(*hdr_pipeline, HDRPush {
+                .index = j,
+                .exposure = 0.02f
+            });
+
+            rf.draw(hdr_pipeline, quad_mesh);
+
             rf.endRender();
         }
+
+        profiler->endBlock(cmd_record, "CmdRecord");
     }
     
     void Renderer::drawOverlay() const
@@ -336,6 +388,48 @@ namespace Engine::System
         ImGui::Text("Total GPU Memory: %lu kB", 
             Util::convert<Util::Bytes, Util::Kilobytes>(brother_buffer.allocated() + instance_buffer.allocated() + scene_data.allocated() + light_data.allocated())
         );
+
+        ImGui::SeparatorText("Execution Timing (over last 5 seconds)");
+
+        std::string names[] = { "FlecsBlock", "DescWrite", "CmdRecord" };
+        double total_runtime = 0.0;
+
+        for (int i = 0; i < 3; i++)
+        {
+            const auto time = profiler->getBlock(names[i])->getAverageRuntime(5.0);
+            total_runtime += time;
+        }
+
+        ImGui::BeginTable("TimeTable", 3);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("Block");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("Runtime");
+        ImGui::TableSetColumnIndex(2);
+        ImGui::Text("Perc. of Iteration");
+
+        for (int i = 0; i < 3; i++)
+        {
+            const auto time = profiler->getBlock(names[i])->getAverageRuntime(5.0);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s", names[i].c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.2fms", time);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%.2f%%", time / total_runtime);
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::Text("Total Runtime:");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::Text("%.2fms,", total_runtime);
+        ImGui::TableSetColumnIndex(2);
+        ImGui::Text("~%.2f FPS", 1000.0 / total_runtime);
+
+        ImGui::EndTable();
 
         ImGui::SeparatorText((std::stringstream() << "G-Buffers: " << gbuffers.size()).str().c_str());
         for (std::size_t i = 0; i < gbuffers.size(); i++)
@@ -351,15 +445,6 @@ namespace Engine::System
                     ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(160 * rf, 160));
                     ImGui::Text("Size (%u, %u), Handle %p", mn::Math::x(a.size), mn::Math::y(a.size), a.handle);
                 }
-
-                /*
-                if (gbuffer.gbuffer->hasDepthAttachment())
-                {
-                    const auto& a = gbuffer.gbuffer->getDepthAttachment();
-                    auto rf = (float)mn::Math::x(a.size) / (float)mn::Math::y(a.size);
-                    ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(160 * rf, 160));
-                    ImGui::Text("Size (%u, %u), Handle %p", mn::Math::x(a.size), mn::Math::y(a.size), a.handle);
-                }*/
 
                 ImGui::TreePop();
             }

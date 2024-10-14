@@ -49,9 +49,19 @@ layout(set = 0, binding = 0) uniform sampler samplers[2];
 layout(set = 0, binding = 1) uniform texture2D textures[];
 
 void main() {
+    vec4 position_sample = texture(sampler2D(textures[1], samplers[0]), inTexCoords);
+
+    uint enable_lighting = uint(position_sample.w);
+
     vec3 inColor  = texture(sampler2D(textures[0], samplers[0]), inTexCoords).xyz;
-    vec3 position = texture(sampler2D(textures[1], samplers[0]), inTexCoords).xyz;
+    vec3 position = position_sample.xyz;
     vec3 normal   = texture(sampler2D(textures[2], samplers[0]), inTexCoords).xyz;
+
+    if (enable_lighting == 0) 
+    {
+        outColor = vec4(inColor, 1.0);
+        return;
+    }
 
     vec3 view_pos = get_pos(constants.view_pos);
 
@@ -71,9 +81,4 @@ void main() {
         1);
     }
     outColor = vec4(inColor.xyz, 1.0) * outColor;
-
-    float gamma = 2.2;
-    outColor.rgb = pow(outColor.rgb, vec3(1.0 / gamma));
-
-    outColor.w = 1.0;
 }

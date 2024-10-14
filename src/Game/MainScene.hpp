@@ -21,13 +21,14 @@
 // [ ] Should start tackling basic culling in the renderer
 // [x] Basic resource manager
 // [ ] Would like to build into the renderer the ability to look at bounding boxes and see wireframe meshes, etc.
-// [ ] Need to build out a descriptor class in midnight that is separate from the pipeline, then you can pass it into
+// [x] Need to build out a descriptor class in midnight that is separate from the pipeline, then you can pass it into
 //     the pipeline builder in order to attach it to a pipeline. This way, we can create a global descriptor where we specify
 //     explicitly the bindings, etc. and we can put multiple descriptors into a pipeline...
 //     Moving away from the combined image sampler allows us to have many many *more* images, and move towards bindless
 // [ ] Need to implement texture loading into the model class
 // [ ] Use meshoptimizer to generate LOD meshes
 // [ ] Consider packing the LOD meshes into the same vertex array
+// 
 
 // [ ] Level editor: load in models, manage resources, see entities/components, create entities, etc. 
 
@@ -41,6 +42,8 @@ namespace Game
         {
             mn::Math::Mat4<float> view, projection; 
         };
+
+        mutable Util::Profiler profiler;
 
         flecs::entity camera, light, light2;
         double total_time = 0.0;

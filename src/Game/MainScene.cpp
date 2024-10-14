@@ -6,6 +6,8 @@
 
 #include "../Engine/Component.hpp"
 
+// [x] Load in another model, test that the instancing is working
+
 namespace Game
 {
     template<class...Fs>
@@ -32,14 +34,16 @@ namespace Game
     {   
         using namespace Engine;
 
-        auto obj_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/stanford-bunny.obj");
+        auto obj_model = res.create<Engine::Model>("bunny_model", RES_DIR "/models/stanford-bunny.obj");
+        auto dragon_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj");
 
         for (int i = 0; i < 10; i++)
         {
             for (int j = 0; j < 10; j++)
             {
+                bool dragon = rand() % 2 == 0;
                 auto e = createEntity();
-                e.set(Component::Model{ .model = obj_model });
+                e.set(Component::Model{ .model = (dragon ? dragon_model : obj_model) });
                 e.set(Component::Transform{ .position = 
                     { 
                         8.f * (i - 5),
@@ -47,7 +51,7 @@ namespace Game
                         0.f
                     },
                     .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                    .scale = { 25.f, 25.f, 25.f }
+                    .scale = (dragon ? mn::Math::Vec3f{ 0.03f, 0.03f, 0.03f } : mn::Math::Vec3f{ 25.f, 25.f, 25.f })
                 });
                 e.add<Bunny>();
             }
@@ -74,6 +78,8 @@ namespace Game
         using namespace mn::Math;
         using namespace mn::Graphics;
         using namespace Engine;
+
+        const auto flecs_block = profiler.beginBlock("FlecsBlock");
 
         if (move_mouse)
         {
@@ -148,6 +154,8 @@ namespace Game
         fpses[frame_index % fpses.size()] = 1.0 / dt;
         frame_index++;
 
+        profiler.endBlock(flecs_block, "FlecsBlock");
+
         return { done };
     }
 
@@ -156,17 +164,43 @@ namespace Game
     {
         using namespace Engine;
 
+        static std::size_t current_block = 0;
+        if (current_block) profiler.endBlock(current_block, "RenderCycle");
+        current_block = profiler.beginBlock("RenderCycle");
+
+        auto total_render = profiler.beginBlock("TotalRender");
         rf.clear({ 0.f, 0.f, 0.f });
         
+        auto renderer_block = profiler.beginBlock("RendererBlock");
         renderer.render(rf);
+        profiler.endBlock(renderer_block, "RendererBlock");
 
         rf.blit(camera.get<Component::Camera>()->surface->getColorAttachments()[0], rf.image->getColorAttachments()[0]);
+        profiler.endBlock(total_render, "TotalRender");
 
         if (!render_ui) return;
 
         ImGui::Begin("Rendering");
         ImGui::Text("FPS: %u", static_cast<uint32_t>(get_fps()));
         ImGui::Checkbox("Render Wireframe", &renderer.settings.wireframe);
+
+        ImGui::SeparatorText("Scene Profiling");
+        
+        std::string names[] = {
+            "RenderCycle", "FlecsBlock", "RendererBlock", "TotalRender"
+        };
+
+        ImGui::BeginTable("render_table", 2);
+        for (int i = 0; i < 3; i++)
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s", names[i].c_str());
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%0.2fms", profiler.getBlock(names[i])->getAverageRuntime(5.0));
+        }
+        ImGui::EndTable();
+
         ImGui::End();
 
         renderer.drawOverlay();

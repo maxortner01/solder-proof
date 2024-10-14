@@ -3,10 +3,13 @@
 #include <midnight/midnight.hpp>
 
 #include "ResourceManager.hpp"
+#include "../Util/Profiler.hpp"
 
 #include <vector>
 #include <memory>
 #include <chrono>
+
+#include <imgui.h>
 #include <flecs.h>
 
 namespace Engine
@@ -74,23 +77,65 @@ namespace Engine
                 const auto dt = duration<double>(new_now - now).count();
                 now = new_now;
 
+                const auto update_block = profiler.beginBlock("SceneUpdate");
                 auto new_scene = scenes.back()->update(dt);
+                profiler.endBlock(update_block, "SceneUpdate");
                 
-                mn::Graphics::Event event;
-                while (window->pollEvent(event))
                 {
-                    scenes.back()->poll(event);
+                    Util::ProfilerBlock render_block(profiler, "PollEvents");
+                    mn::Graphics::Event event;
+                    while (window->pollEvent(event))
+                    {
+                        scenes.back()->poll(event);
+                    }
                 }
 
-
+                const auto frame_start = profiler.beginBlock("FrameStart");
 		        auto rf = window->startFrame();
+                profiler.endBlock(frame_start, "FrameStart");
 
+                {
+                    Util::ProfilerBlock render_block(profiler, "SceneRender");
+                    scenes.back()->render(rf);
+                }
 
-                //rf.setPushConstant(pipeline, c);
-                //rf.draw(pipeline, model);
-                scenes.back()->render(rf);
+                {
+                    const std::string names[] = {
+                        "SceneUpdate", "PollEvents", "FrameStart", "SceneRender", "EndFrame"
+                    };
+                    double total_time = 0.0;
+                    for (int i = 0; i < 5; i++)
+                        total_time += profiler.getBlock(names[i])->getAverageRuntime(5.0);
 
-		        window->endFrame(rf);
+                    ImGui::Begin("Application Profile");
+                    
+                    ImGui::BeginTable("Profiler", 3);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Block Name");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Runtime");
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("Perc. of Iteration");
+                    for (int i = 0; i < 5; i++)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("%s", names[i].c_str());
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%0.2f", profiler.getBlock(names[i])->getAverageRuntime(5.0));
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%0.2f%%", profiler.getBlock(names[i])->getAverageRuntime(5.0) / total_time * 100.0);
+                    }
+                    ImGui::EndTable();
+
+                    ImGui::End();
+                }
+
+                {
+                    Util::ProfilerBlock render_block(profiler, "EndFrame");
+		            window->endFrame(rf);
+                }
 
                 if (new_scene.destroy)    scenes.pop_back();
                 if (new_scene.next_scene) scenes.push_back(std::move(new_scene.next_scene));
@@ -100,6 +145,8 @@ namespace Engine
         }
 
     private:
+        Util::Profiler profiler;
+
         std::shared_ptr<mn::Graphics::Window> window;
         std::vector<std::unique_ptr<Scene>> scenes;
     };
