@@ -105,7 +105,7 @@ namespace Engine
                     const auto& meshes = model_ptr->getMeshes();
                     ImGui::Text("%lu kB", Util::convert<Util::Bytes, Util::Kilobytes>(model_ptr->allocated()));
                     ImGui::Text("Contains %lu meshes", meshes.size());
-                    for (const auto& mesh : meshes) ImGui::Text("  %lu vertices, %lu indices", mesh.mesh->vertexCount(), mesh.mesh->indexCount());
+                    for (const auto& mesh : meshes) ImGui::Text("  %lu vertices, %lu indices", mesh->mesh->vertexCount(), mesh->mesh->indexCount());
                     ImGui::TreePop();
                 }
         }

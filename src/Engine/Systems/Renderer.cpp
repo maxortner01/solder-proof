@@ -134,13 +134,28 @@ namespace Engine::System
         // [ ] Next, we want to visualize the bounding boxes. So maybe we also load a box mesh into the renderer
         //     and have an option in the settings for drawing it. Drawing it is just as simple as adding a draw call with
         //     the wireframe pipeline with the box mesh right after we draw the model instances (same arguments and everything)
+        
+        // We have LOD beginning to be integrated... This is the bottleneck currently (then frustum culling)
+        // The way this is all set up is not going to work, though
+        // Instead of passing along meshes, we need to pass along the unique combinations of a mesh and possibly
+        // an outside index buffer
+        // One way to do this is to have
+        // std::unordered_map<std::shared_ptr<TypeBuffer<Vertex>>, std::vector<std::shared_ptr<TypeBuffer<uint32_t>>>>
+        // When we iterate through the models, we can match up a vertex buffer with its corresponding index buffer
+        // Then, in the render, we go through the vertex buffers like we go through models and bind, but within that
+        // go through its corresonding list of index buffers and bind index buffers and draw
+        // Essentially, it is sorted by mesh right now. We want to instead sort by vertex array, then within these sublists
+        // sort by the index array
 
         using namespace mn;
+        using namespace mn::Graphics;
 
         struct ModelRep
         {
             std::size_t offset, count;
-            std::shared_ptr<Graphics::Mesh> model;
+            std::shared_ptr<TypeBuffer<Mesh::Vertex>> vertex;
+            std::shared_ptr<TypeBuffer<uint32_t>> index;
+            std::size_t index_offset, index_count;
         };
 
         std::vector<ModelRep> offsets;
@@ -153,46 +168,20 @@ namespace Engine::System
         if (gbuffers.size() < camera_query.count())
             gbuffers.resize(camera_query.count());
 
-        //pipeline.getSet()->setImages(0, Graphics::Backend::Sampler::Nearest, images);
-
         // we can keep handle the descriptor set here as well
         // go through the unique models and push the texture
 
         std::size_t total_instance_count = 0;
         std::unordered_map<
-            std::shared_ptr<Graphics::Mesh>, 
-            std::vector<InstanceData>> instance_data;
+            std::shared_ptr<Model::BoundedMesh>, std::vector<InstanceData>> instance_data;
 
         auto flecs_block = profiler->beginBlock("FlecsBlock");
-
-        model_query.each(
-            [&](const Component::Model& model, const Component::Transform& transform)
-            {
-                const auto normal    = Math::rotation<float>(transform.rotation);
-                const auto model_mat = Math::scale(transform.scale) * normal * Math::translation(transform.position);
-                for (const auto& mesh : model.model.value->getMeshes())
-                {
-                    instance_data[mesh.mesh].push_back(InstanceData{
-                        .model  = model_mat,
-                        .normal = normal
-                    });
-                    total_instance_count++;
-                }
-            });
-        
-        brother_buffer.resize(total_instance_count);
-        std::size_t it = 0;
-        for (const auto& [ model, matrices ] : instance_data)
-        {
-            offsets.push_back(ModelRep{ .offset = it, .model = model });   
-            std::copy(matrices.begin(), matrices.end(), &brother_buffer[it]);
-            it += matrices.size();
-        }
 
         std::vector<Math::Vec3f> view_pos;
         std::vector<std::shared_ptr<Graphics::Image>> camera_images;
 
-        it = 0;
+        auto camera_query_block = profiler->beginBlock("CameraQuery");
+        std::size_t it = 0;
         camera_query.each(
             [this, &rf, &it, &camera_images, &view_pos](flecs::entity e, const Component::Camera& camera)
             {
@@ -210,6 +199,109 @@ namespace Engine::System
                 );
                 scene_data[it++].projection = Math::perspective((float)Math::x(attach.size) / (float)Math::y(attach.size), camera.FOV, camera.near_far);
             });
+        profiler->endBlock(camera_query_block, "CameraQuery");
+
+        const auto model_query_block = profiler->beginBlock("ModelQuery"); 
+        model_query.each(
+            [&](const Component::Model& model, const Component::Transform& transform)
+            {
+                const auto normal    = Math::rotation<float>(transform.rotation);
+                const auto model_mat = Math::scale(transform.scale) * normal * Math::translation(transform.position);
+                for (const auto& mesh : model.model.value->getMeshes())
+                {
+                    instance_data[mesh].push_back(InstanceData{
+                        .model  = model_mat,
+                        .normal = normal
+                    });
+                    total_instance_count++;
+                }
+            });
+        profiler->endBlock(model_query_block, "ModelQuery"); 
+        
+        const auto instance_copy = profiler->beginBlock("InstanceCopy");
+        brother_buffer.resize(total_instance_count);
+        it = 0;
+        for (auto& [ model, matrices ] : instance_data)
+        {
+            // Here we sort the matrices based off distance from camera 
+            std::vector<std::pair<InstanceData, float>> distances;
+            for (auto& matrix : matrices)
+            {
+                const auto d1 = matrix.model * Math::Vec4f{0.f, 0.f, 0.f, 1.f};
+                const auto distance = Math::length(Math::Vec3f{Math::x(d1), Math::y(d1), Math::z(d1)} - view_pos[0]);
+                distances.push_back({ matrix, distance });
+            }
+
+            std::sort(distances.begin(), distances.end(), [](const auto& mat1, const auto& mat2)
+            { return mat1.second < mat2.second; });
+            
+            for (std::size_t i = 0; i < distances.size(); i++)
+                brother_buffer[it + i] = distances[i].first;
+
+            const std::pair<float, std::optional<float>> lod_ranges[] = {
+                { 35.f, std::nullopt },
+                { 30.f, 35.f },
+                { 25.f, 30.f },
+                { 20.f, 25.f },
+                { 10.f, 20.f },
+                {  0.f, 10.f }
+            };
+
+            const auto get_range = [&lod_ranges](float distance)
+            {
+                for (std::size_t i = 0; i < 6; i++)
+                {
+                    if (lod_ranges[i].second)
+                    {
+                        if (distance < *lod_ranges[i].second && distance >= lod_ranges[i].first)
+                            return i;
+                    }
+                    else
+                    {
+                        if (distance >= lod_ranges[i].first)
+                            return i;
+                    }
+                }
+                return std::size_t(0);
+            };
+
+            std::optional<std::size_t> current_index;
+            for (int i = 0; i < distances.size(); i++)   
+            {
+                const auto index = get_range(distances[i].second);
+                if (!current_index || (current_index && *current_index != index))
+                {
+                    if (index < model->lods.lod_offsets.size())
+                    {
+                        offsets.push_back(ModelRep{ 
+                            .offset = it + i, 
+                            .vertex = model->mesh->vertex, 
+                            .index = model->lods.lod, 
+                            .index_offset = model->lods.lod_offsets[index].offset, 
+                            .index_count = model->lods.lod_offsets[index].count
+                        });
+                    }
+                    else
+                    {
+                        offsets.push_back(ModelRep{ 
+                            .offset = it + i, 
+                            .vertex = model->mesh->vertex, 
+                            .index = model->mesh->index, 
+                            .index_offset = 0, 
+                            .index_count = model->mesh->index->size()
+                        });
+                    }
+
+                    current_index = index;
+                }
+            }
+
+            it += matrices.size();
+
+            // Then we take the LOD cutoffs and push the offsets to partition this sub-field
+            // modulating the index_offset and index_count variables
+        }
+        profiler->endBlock(instance_copy, "InstanceCopy");
 
         it = 0;
         light_query.each(
@@ -309,7 +401,21 @@ namespace Engine::System
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
-                rf.draw(offsets[i].model, offsets[i].count); //instances);
+                // The models are sorted by
+                // VERTEX 0
+                // INDEX 0
+                // INDEX 1
+                // INDEX 2
+                // VERTEX 1
+                // INDEX 0
+                // ...
+                // So we only need to bind the vertex buffer if it has changed
+                rf.drawIndexed(
+                    offsets[i].vertex, 
+                    offsets[i].index, 
+                    offsets[i].count, 
+                    offsets[i].index_offset, 
+                    offsets[i].index_count); //instances);
                 /*
                 rf.bind(wireframe_pipeline);
 
@@ -391,14 +497,11 @@ namespace Engine::System
 
         ImGui::SeparatorText("Execution Timing (over last 5 seconds)");
 
-        std::string names[] = { "FlecsBlock", "DescWrite", "CmdRecord" };
-        double total_runtime = 0.0;
-
-        for (int i = 0; i < 3; i++)
-        {
-            const auto time = profiler->getBlock(names[i])->getAverageRuntime(5.0);
-            total_runtime += time;
-        }
+        std::string names[] = { "FlecsBlock", "InstanceCopy", "ModelQuery", "CameraQuery", "DescWrite", "CmdRecord" };
+        double total_runtime = 
+            profiler->getBlock("FlecsBlock")->getAverageRuntime(5.0) +
+            profiler->getBlock("DescWrite")->getAverageRuntime(5.0) + 
+            profiler->getBlock("CmdRecord")->getAverageRuntime(5.0);
 
         ImGui::BeginTable("TimeTable", 3);
         ImGui::TableNextRow();
@@ -409,7 +512,7 @@ namespace Engine::System
         ImGui::TableSetColumnIndex(2);
         ImGui::Text("Perc. of Iteration");
 
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 6; i++)
         {
             const auto time = profiler->getBlock(names[i])->getAverageRuntime(5.0);
             ImGui::TableNextRow();
@@ -418,7 +521,7 @@ namespace Engine::System
             ImGui::TableSetColumnIndex(1);
             ImGui::Text("%.2fms", time);
             ImGui::TableSetColumnIndex(2);
-            ImGui::Text("%.2f%%", time / total_runtime);
+            ImGui::Text("%.2f%%", time / total_runtime * 100.0);
         }
 
         ImGui::TableNextRow();
@@ -442,8 +545,8 @@ namespace Engine::System
                 for (const auto& a : attachments)
                 {
                     auto rf = (float)mn::Math::x(a.size) / (float)mn::Math::y(a.size);
-                    ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(160 * rf, 160));
-                    ImGui::Text("Size (%u, %u), Handle %p", mn::Math::x(a.size), mn::Math::y(a.size), a.handle);
+                    ImGui::Image((ImTextureID)a.imgui_ds, ImVec2(80 * rf, 80));
+                    ImGui::SameLine();
                 }
 
                 ImGui::TreePop();

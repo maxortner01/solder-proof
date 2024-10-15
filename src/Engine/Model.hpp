@@ -16,6 +16,17 @@ namespace Engine
         {
             BoundingBox aabb;
             std::shared_ptr<mn::Graphics::Mesh> mesh;
+            
+            struct LOD
+            {
+                struct Level
+                {
+                    std::size_t offset, count;
+                };
+
+                std::vector<Level> lod_offsets;
+                std::shared_ptr<mn::Graphics::TypeBuffer<uint32_t>> lod;
+            } lods;
         };
 
         Model() = default;
@@ -29,7 +40,8 @@ namespace Engine
         std::size_t allocated() const;
 
     private:
+        void optimize_mesh();
 
-        std::vector<BoundedMesh> _meshes;
+        std::vector<std::shared_ptr<BoundedMesh>> _meshes;
     };
 }

@@ -37,23 +37,26 @@ namespace Game
         auto obj_model = res.create<Engine::Model>("bunny_model", RES_DIR "/models/stanford-bunny.obj");
         auto dragon_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj");
 
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 18; i++)
         {
-            for (int j = 0; j < 10; j++)
+            for (int j = 0; j < 18; j++)
             {
-                bool dragon = rand() % 2 == 0;
-                auto e = createEntity();
-                e.set(Component::Model{ .model = (dragon ? dragon_model : obj_model) });
-                e.set(Component::Transform{ .position = 
-                    { 
-                        8.f * (i - 5),
-                        8.f * (j - 5), 
-                        0.f
-                    },
-                    .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                    .scale = (dragon ? mn::Math::Vec3f{ 0.03f, 0.03f, 0.03f } : mn::Math::Vec3f{ 25.f, 25.f, 25.f })
-                });
-                e.add<Bunny>();
+                for (int k = 0; k < 18; k++)
+                {
+                    bool dragon = rand() % 2 == 0;
+                    auto e = createEntity();
+                    e.set(Component::Model{ .model = (dragon ? dragon_model : obj_model) });
+                    e.set(Component::Transform{ .position = 
+                        { 
+                            8.f * (i - 9),
+                            8.f * (j - 9), 
+                            8.f * (k - 9)
+                        },
+                        .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
+                        .scale = (dragon ? mn::Math::Vec3f{ 0.03f, 0.03f, 0.03f } : mn::Math::Vec3f{ 25.f, 25.f, 25.f })
+                    });
+                    e.add<Bunny>();
+                }
             }
         }
 
