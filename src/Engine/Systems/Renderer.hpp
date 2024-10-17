@@ -34,7 +34,7 @@ namespace Engine::System
         struct PushConstant
         {
             mn::Graphics::Buffer::gpu_addr scene_data, models, lights, instance_indices;
-            uint32_t scene_index, light_count, offset, enable_lighting;
+            uint32_t scene_index, light_count, offset, enable_lighting, descriptor_present;
         };
 
         struct GBufferPush
@@ -91,7 +91,8 @@ namespace Engine::System
         std::shared_ptr<mn::Graphics::Mesh> quad_mesh;
         std::shared_ptr<Engine::Model> cube_model;
 
-        std::shared_ptr<mn::Graphics::Descriptor> descriptor;
+        std::shared_ptr<mn::Graphics::Descriptor::Layout> gbuffer_descriptor_layout;
+        std::shared_ptr<mn::Graphics::Descriptor> gbuffer_descriptor;
         std::shared_ptr<mn::Graphics::Pipeline> pipeline, wireframe_pipeline, hdr_pipeline, quad_pipeline;
 
         mutable mn::Graphics::TypeBuffer<InstanceData> brother_buffer;

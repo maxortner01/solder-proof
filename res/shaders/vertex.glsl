@@ -56,6 +56,7 @@ layout (std140, push_constant) uniform Constants
     uint light_count;
     uint offset;
     uint enable_lighting;
+    uint descriptor_present;
 } constants;
 
 layout(location = 0) out vec4 outColor;

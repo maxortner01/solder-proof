@@ -59,11 +59,6 @@ namespace Engine::System
         light_query(_world.query_builder<const Component::Light, const Component::Transform>()
             .cached()
             .build()),
-        descriptor(std::make_shared<mn::Graphics::Descriptor>(
-            std::move(mn::Graphics::DescriptorBuilder()
-                .addBinding(mn::Graphics::Descriptor::Binding{ .type = mn::Graphics::Descriptor::Binding::Sampler, .count = 2 })
-                .addVariableBinding(mn::Graphics::Descriptor::Binding::Image, 4)
-                .build()))),
         pipeline(std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
             {
@@ -97,11 +92,24 @@ namespace Engine::System
         cube_model(std::make_shared<Engine::Model>(RES_DIR "/models/cube.obj")),
         profiler(std::make_shared<Util::Profiler>())
     {   
+        using namespace mn::Graphics;
+
+        gbuffer_descriptor_layout = std::make_shared<Descriptor::Layout>([]()
+        {
+            DescriptorLayoutBuilder layout_builder;
+            layout_builder.addBinding(Descriptor::Layout::Binding{ .type = Descriptor::Layout::Binding::Sampler, .count = 2 });
+            layout_builder.addVariableBinding(Descriptor::Layout::Binding::Image, 4);
+            return layout_builder.build();
+        }());
+
+        auto descriptor_pool = Descriptor::Pool::make();
+        gbuffer_descriptor = descriptor_pool->allocateDescriptor(gbuffer_descriptor_layout);
+
         mn::Graphics::PipelineBuilder quad_builder;
         quad_builder.addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex);
         quad_builder.setDepthTesting(false);
         quad_builder.setBackfaceCull(true);
-        quad_builder.addSet(descriptor);
+        quad_builder.addDescriptorLayout(gbuffer_descriptor_layout);
 
         quad_pipeline = std::make_shared<mn::Graphics::Pipeline>(
             [](mn::Graphics::PipelineBuilder builder)
@@ -156,6 +164,7 @@ namespace Engine::System
             std::shared_ptr<TypeBuffer<Mesh::Vertex>> vertex;
             std::shared_ptr<TypeBuffer<uint32_t>> index;
             std::size_t index_offset, index_count;
+            std::shared_ptr<Descriptor> descriptor;
         };
 
         std::vector<ModelRep> offsets;
@@ -278,7 +287,8 @@ namespace Engine::System
                             .vertex = model->mesh->vertex, 
                             .index = model->lods.lod, 
                             .index_offset = model->lods.lod_offsets[index].offset, 
-                            .index_count = model->lods.lod_offsets[index].count
+                            .index_count = model->lods.lod_offsets[index].count,
+                            .descriptor = model->descriptor
                         });
                     }
                     else
@@ -288,7 +298,8 @@ namespace Engine::System
                             .vertex = model->mesh->vertex, 
                             .index = model->mesh->index, 
                             .index_offset = 0, 
-                            .index_count = model->mesh->index->size()
+                            .index_count = model->mesh->index->size(),
+                            .descriptor = model->descriptor
                         });
                     }
 
@@ -332,8 +343,8 @@ namespace Engine::System
             samplers.push_back(device->getSampler(Graphics::Backend::Sampler::Linear));
         }
         
-        descriptor->update<Graphics::Descriptor::Binding::Sampler>(0, samplers);
-        descriptor->update<Graphics::Descriptor::Binding::Image  >(1, images);
+        gbuffer_descriptor->update<Graphics::Descriptor::Layout::Binding::Sampler>(0, samplers);
+        gbuffer_descriptor->update<Graphics::Descriptor::Layout::Binding::Image  >(1, images);
 
         profiler->endBlock(desc_write, "DescWrite");
 
@@ -390,14 +401,15 @@ namespace Engine::System
                 if (!offsets[i].count) continue;
 
                 rf.setPushConstant(*use_pipeline, PushConstant {
-                    .scene_index      = j, 
-                    .offset           = static_cast<uint32_t>(offsets[i].offset),
-                    .light_count      = static_cast<uint32_t>(light_data.size()),
-                    .lights           = light_data.getAddress(),
-                    .scene_data       = scene_data.getAddress(),
-                    .instance_indices = instance_buffer.getAddress(),
-                    .models           = brother_buffer.getAddress(),
-                    .enable_lighting  = 1
+                    .scene_index        = j, 
+                    .offset             = static_cast<uint32_t>(offsets[i].offset),
+                    .light_count        = static_cast<uint32_t>(light_data.size()),
+                    .lights             = light_data.getAddress(),
+                    .scene_data         = scene_data.getAddress(),
+                    .instance_indices   = instance_buffer.getAddress(),
+                    .models             = brother_buffer.getAddress(),
+                    .enable_lighting    = 1,
+                    .descriptor_present = (bool)offsets[i].descriptor.get()
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
@@ -410,6 +422,9 @@ namespace Engine::System
                 // INDEX 0
                 // ...
                 // So we only need to bind the vertex buffer if it has changed
+                if (offsets[i].descriptor)
+                    rf.bind(0, use_pipeline, offsets[i].descriptor);
+                    
                 rf.drawIndexed(
                     offsets[i].vertex, 
                     offsets[i].index, 
@@ -450,6 +465,7 @@ namespace Engine::System
 
             // Take our scene and render it into the HDR surface doing the normal lighting
             // calculations
+            rf.bind(0, quad_pipeline, gbuffer_descriptor);
             rf.draw(quad_pipeline, quad_mesh);
 
             rf.endRender();
@@ -475,6 +491,7 @@ namespace Engine::System
                 .exposure = 0.02f
             });
 
+            rf.bind(0, hdr_pipeline, gbuffer_descriptor);
             rf.draw(hdr_pipeline, quad_mesh);
 
             rf.endRender();

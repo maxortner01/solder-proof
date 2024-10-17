@@ -60,6 +60,8 @@ layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer Ins
     uint data[];
 };
 
+
+
 layout (std140, push_constant) uniform Constants
 {
     SceneDataPtr scene_data;
@@ -70,12 +72,12 @@ layout (std140, push_constant) uniform Constants
     uint light_count;
     uint offset;
     uint enable_lighting;
+    uint descriptor_present;
 } constants;
 
-//layout(set = 0, binding = 0) uniform sampler samplers[2];
-//layout(set = 0, binding = 1) uniform texture2D textures[];
+layout(set = 0, binding = 0) uniform sampler samplers[1];
+layout(set = 0, binding = 1) uniform texture2D textures[];
 
-//layout(location = 0) out vec4 outColor;
 layout(location = 0) out vec4 gAlbedoSpec;
 layout(location = 1) out vec4 gPosition;
 layout(location = 2) out vec4 gNormal;
@@ -89,25 +91,8 @@ layout(location = 4) in vec2 tex_coords;
 void main() {
     gPosition = vec4(position, constants.enable_lighting);
     gNormal = vec4(normalize(normal), 1);
-    //gNormal = normal;
-    gAlbedoSpec = vec4(inColor.xyz, 1.0);
-    /*
-    outColor = vec4(0, 0, 0, 1);
-    for (int i = 0; i < constants.light_count; i++)
-    {
-        vec3 r = position - get_pos( constants.lights.data[i].position );
-
-        vec3 viewDir = normalize(position - view_pos);
-        vec3 reflectDir = normalize(reflect(-r, normal));
-        
-        outColor += vec4(
-            get_color(constants.lights.data[i].color) * 
-            (constants.lights.data[i].intensity * // Diffuse
-            min(max(dot(normalize(r), normal), 0.0) / dot(r, r), 1.0)
-            + 0.08 * pow(max(dot(viewDir, reflectDir), 0.0), 8)), // Specular 
-        1);
-    }
-    //outColor = texture(textures[0], tex_coords) * inColor * (vec4(0.2, 0.2, 0.2, 1.0) + outColor);
-    outColor = inColor * outColor;
-    outColor.w = 1.0;*/
+    if (constants.descriptor_present == 1)
+        gAlbedoSpec = texture(sampler2D(textures[0], samplers[0]), tex_coords);
+    else
+        gAlbedoSpec = vec4(inColor.xyz, 1.0);
 }

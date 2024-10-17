@@ -34,7 +34,7 @@ namespace Engine
             const auto tid = std::type_index(typeid(T));
             assert(resources.count(tid));
             assert(resources[tid].count(name));
-            return Entry<T>{ .name = name, .value = resources[tid][name] };
+            return Entry<T>{ .name = name, .value = std::reinterpret_pointer_cast<T>(resources.at(tid).at(name)) };
         }
 
         template<typename T>

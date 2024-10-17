@@ -22,11 +22,13 @@ namespace Game
         Scene(window),
         renderer(world, [this]()
             {
+                auto diffuse  = res.create<Engine::System::DiffuseMaterial>("diffuse_material");
                 auto vertex   = res.create<mn::Graphics::Shader>("vertex_shader",   RES_DIR "/shaders/vertex.glsl",   mn::Graphics::ShaderType::Vertex);
                 auto fragment = res.create<mn::Graphics::Shader>("fragment_shader", RES_DIR "/shaders/fragment.glsl", mn::Graphics::ShaderType::Fragment);
                 return mn::Graphics::PipelineBuilder::fromLua(RES_DIR, "/shaders/main.lua")
                     .addShader(vertex.value)
-                    .addShader(fragment.value);
+                    .addShader(fragment.value)
+                    .addDescriptorLayout(diffuse.value->layout);
             }()),
         frame_index{0},
         fpses(50, 0.0),
@@ -34,8 +36,11 @@ namespace Game
     {   
         using namespace Engine;
 
+        auto diffuse = res.get<Engine::System::DiffuseMaterial>("diffuse_material");
+
         auto obj_model = res.create<Engine::Model>("bunny_model", RES_DIR "/models/stanford-bunny.obj");
         auto dragon_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj");
+        auto erato_model = res.create<Engine::Model>("erato_model", RES_DIR "/models/erato/erato.obj", diffuse.value);
 
         for (int i = 0; i < 18; i++)
         {
@@ -43,9 +48,29 @@ namespace Game
             {
                 for (int k = 0; k < 18; k++)
                 {
-                    bool dragon = rand() % 2 == 0;
+                    const auto index = rand() % 3;
+                    const auto model = [&](const auto index)
+                    {
+                        switch (index)
+                        {
+                        case 0: return obj_model;
+                        case 1: return dragon_model;
+                        case 2: return erato_model;
+                        }
+                    };
+
+                    const auto scale = [](const auto index)
+                    {
+                        switch (index)
+                        {
+                        case 0: return mn::Math::Vec3f{ 25.f, 25.f, 25.f };
+                        case 1: return mn::Math::Vec3f{ 0.03f, 0.03f, 0.03f };
+                        case 2: return mn::Math::Vec3f{ 0.2f, 0.2f, 0.2f };
+                        }
+                    };
+
                     auto e = createEntity();
-                    e.set(Component::Model{ .model = (dragon ? dragon_model : obj_model) });
+                    e.set(Component::Model{ .model = model(index) });
                     e.set(Component::Transform{ .position = 
                         { 
                             8.f * (i - 9),
@@ -53,7 +78,7 @@ namespace Game
                             8.f * (k - 9)
                         },
                         .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                        .scale = (dragon ? mn::Math::Vec3f{ 0.03f, 0.03f, 0.03f } : mn::Math::Vec3f{ 25.f, 25.f, 25.f })
+                        .scale = scale(index)
                     });
                     e.add<Bunny>();
                 }
@@ -147,7 +172,7 @@ namespace Game
         bunnies.each(
             [&dt](Bunny, Engine::Component::Transform& transform)
             {
-                y(transform.rotation) += Angle::degrees(20.0 * dt);
+                y(transform.rotation) += Angle::degrees(12.0 * dt);
             });
 
 

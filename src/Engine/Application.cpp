@@ -102,11 +102,14 @@ namespace Engine
             for (const auto& [ name, model_ptr ] : model_map)
                 if (ImGui::TreeNode(name.c_str()))
                 {
+                    model_ptr->drawUI();
+                    /*
                     const auto& meshes = model_ptr->getMeshes();
                     ImGui::Text("%lu kB", Util::convert<Util::Bytes, Util::Kilobytes>(model_ptr->allocated()));
                     ImGui::Text("Contains %lu meshes", meshes.size());
                     for (const auto& mesh : meshes) ImGui::Text("  %lu vertices, %lu indices", mesh->mesh->vertexCount(), mesh->mesh->indexCount());
-                    ImGui::TreePop();
+                    */
+                   ImGui::TreePop();
                 }
         }
         if (ImGui::CollapsingHeader("Shaders"))

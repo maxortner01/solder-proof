@@ -42,8 +42,8 @@ namespace Engine
 
         void renderOverlay() const;
 
-        flecs::world world;
         Engine::ResourceManager res;
+        flecs::world world;
 
         // Needed only for overlay
         std::vector<flecs::entity> entities;

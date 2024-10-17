@@ -26,9 +26,8 @@
 //     explicitly the bindings, etc. and we can put multiple descriptors into a pipeline...
 //     Moving away from the combined image sampler allows us to have many many *more* images, and move towards bindless
 // [ ] Need to implement texture loading into the model class
-// [ ] Use meshoptimizer to generate LOD meshes
-// [ ] Consider packing the LOD meshes into the same vertex array
-// 
+// [x] Use meshoptimizer to generate LOD meshes
+// [ ] To start developing levels I need only culling and materials built in
 
 // [ ] Level editor: load in models, manage resources, see entities/components, create entities, etc. 
 

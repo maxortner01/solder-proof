@@ -1,11 +1,23 @@
 #pragma once
 
+#include <iomanip>
+#include <locale>
+
 namespace Util
 {
     enum UnitType
     {
         Bytes, Kilobytes, Megabytes, Gigabytes
     };
+
+    template<typename T>
+    std::string withCommas(T value)
+    {
+        std::stringstream ss;
+        ss.imbue(std::locale(""));
+        ss << std::fixed << value;
+        return ss.str();
+    }
 
     template<UnitType In, UnitType Out>
     struct Converter

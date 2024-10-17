@@ -1,21 +1,25 @@
 #include "Model.hpp"
 
+#include "../Util/DataRep.hpp"
+
 #include <type_traits>
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include <imgui.h>
+
 #include <meshoptimizer.h>
 
 namespace Engine
 {
-    Model::Model(const std::filesystem::path& path)
+    Model::Model(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys)
     {
-        loadFromFile(path);
+        loadFromFile(path, material_sys);
     }
 
-    void Model::loadFromFile(const std::filesystem::path& path)
+    void Model::loadFromFile(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys)
     {
         using namespace mn;
         using namespace mn::Graphics;
@@ -44,7 +48,7 @@ namespace Engine
             };
 
         const std::function<void(aiNode*, const aiScene*)>
-            process = [this, &process, &transfer_vector](aiNode* node, const aiScene* scene) -> void
+            process = [&, this](aiNode* node, const aiScene* scene) -> void
             {
                 for (uint32_t i = 0; i < node->mNumMeshes; i++)
                 {
@@ -75,10 +79,15 @@ namespace Engine
                             frame.indices.push_back(face.mIndices[j]);
                     }
 
+                    std::shared_ptr<Descriptor> descriptor;
+                    if (scene->HasMaterials() && file_mesh->mMaterialIndex < scene->mNumMaterials && material_sys.get())
+                        descriptor = material_sys->resolveMaterial(path, scene->mMaterials[file_mesh->mMaterialIndex]);
+
                     this->_meshes.push_back(std::make_shared<BoundedMesh>(
                         BoundedMesh {
                             .aabb = aabb,
-                            .mesh = std::make_shared<Mesh>(Mesh::fromFrame(frame))
+                            .mesh = std::make_shared<Mesh>(Mesh::fromFrame(frame)),
+                            .descriptor = descriptor
                         })
                     );
                 }   
@@ -160,6 +169,46 @@ namespace Engine
             mesh->lods.lod = std::make_shared<mn::Graphics::TypeBuffer<uint32_t>>();
             mesh->lods.lod->resize(final_indices.size());
             std::copy(final_indices.begin(), final_indices.end(), &mesh->lods.lod->at(0));
+        }
+    }
+
+    void Model::drawUI() const
+    {
+        std::size_t total_byte_size = 0;
+        for (const auto& mesh : _meshes)
+            total_byte_size += mesh->mesh->allocated() + mesh->lods.lod->allocated();
+
+        ImGui::Text("Total GPU Allocation: %s kB", Util::withCommas( Util::convert<Util::Bytes, Util::Kilobytes>(total_byte_size) ).c_str());
+        for (int i = 0; i < _meshes.size(); i++)
+        {
+            if (ImGui::TreeNode((std::stringstream() << "Mesh " << i + 1).str().c_str()))
+            {
+                ImGui::Text("Vertex Count: %s", Util::withCommas(_meshes[i]->mesh->vertexCount()).c_str());
+                ImGui::Text("Base Index Count: %s", Util::withCommas(_meshes[i]->mesh->indexCount()).c_str());
+
+                ImGui::SeparatorText((std::stringstream() << "LOD levels: " << _meshes[i]->lods.lod_offsets.size()).str().c_str());
+                if (_meshes[i]->lods.lod_offsets.size())
+                {
+                    ImGui::BeginTable("LodOffsets", 2);
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Level");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Index Count");
+
+                    for (int j = 0; j < _meshes[i]->lods.lod_offsets.size(); j++)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("%i", j);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%lu", _meshes[i]->lods.lod_offsets[j].count);
+                    }
+                    ImGui::EndTable();
+                }
+
+                ImGui::TreePop();
+            }
         }
     }
 }
