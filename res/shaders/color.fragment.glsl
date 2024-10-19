@@ -72,11 +72,7 @@ layout (std140, push_constant) uniform Constants
     uint light_count;
     uint offset;
     uint enable_lighting;
-    uint descriptor_present;
 } constants;
-
-layout(set = 0, binding = 0) uniform sampler samplers[1];
-layout(set = 0, binding = 1) uniform texture2D textures[];
 
 layout(location = 0) out vec4 gAlbedoSpec;
 layout(location = 1) out vec4 gPosition;
@@ -87,12 +83,10 @@ layout(location = 1) in vec3 normal;
 layout(location = 2) in vec3 position;
 layout(location = 3) in vec3 view_pos;
 layout(location = 4) in vec2 tex_coords;
+layout(location = 5) in flat uint lit;
 
 void main() {
-    gPosition = vec4(position, constants.enable_lighting);
+    gPosition = vec4(position, lit);
     gNormal = vec4(normalize(normal), 1);
-    if (constants.descriptor_present == 1)
-        gAlbedoSpec = texture(sampler2D(textures[0], samplers[0]), tex_coords);
-    else
-        gAlbedoSpec = vec4(inColor.xyz, 1.0);
+    gAlbedoSpec = vec4(inColor.xyz, 1.0);
 }

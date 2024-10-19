@@ -29,12 +29,21 @@ namespace Engine
 
         template<typename T>
         Entry<T>
-        get(const std::string& name)
+        get(const std::string& name) const
         {
             const auto tid = std::type_index(typeid(T));
             assert(resources.count(tid));
-            assert(resources[tid].count(name));
+            assert(resources.at(tid).count(name));
             return Entry<T>{ .name = name, .value = std::reinterpret_pointer_cast<T>(resources.at(tid).at(name)) };
+        }
+
+        template<typename T>
+        bool exists(const std::string& name) const
+        {
+            const auto tid = std::type_index(typeid(T));
+            if (!resources.count(tid)) return false;
+            if (!resources.at(tid).count(name)) return false;
+            return true;
         }
 
         template<typename T>

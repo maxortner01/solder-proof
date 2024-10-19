@@ -10,6 +10,8 @@ layout(location = 3) in vec2 tex_coords;
 struct Instance
 {
     mat4 model, normal;
+    uint lit;
+    uint test[15];
 };
 
 layout(std430, buffer_reference, buffer_reference_align = 8) readonly buffer ModelsPtr
@@ -56,7 +58,6 @@ layout (std140, push_constant) uniform Constants
     uint light_count;
     uint offset;
     uint enable_lighting;
-    uint descriptor_present;
 } constants;
 
 layout(location = 0) out vec4 outColor;
@@ -64,6 +65,7 @@ layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec3 outPosition;
 layout(location = 3) out vec3 outViewPos;
 layout(location = 4) out vec2 outTexCoords;
+layout(location = 5) out flat uint lit;
 
 void main() {
     uint index = gl_InstanceIndex + constants.offset;
@@ -74,6 +76,8 @@ void main() {
         constants.scene_data.data[constants.scene_index].view * 
         constants.models.data[instance_index].model * 
             vec4(position, 1.0);
+
+    lit = uint(constants.enable_lighting == 1 && constants.models.data[instance_index].lit == 1);
 
     outColor = color;
     outTexCoords = tex_coords;

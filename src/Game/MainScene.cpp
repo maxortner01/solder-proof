@@ -20,27 +20,19 @@ namespace Game
 
     MainScene::MainScene(std::shared_ptr<mn::Graphics::Window> window) :
         Scene(window),
-        renderer(world, [this]()
-            {
-                auto diffuse  = res.create<Engine::System::DiffuseMaterial>("diffuse_material");
-                auto vertex   = res.create<mn::Graphics::Shader>("vertex_shader",   RES_DIR "/shaders/vertex.glsl",   mn::Graphics::ShaderType::Vertex);
-                auto fragment = res.create<mn::Graphics::Shader>("fragment_shader", RES_DIR "/shaders/fragment.glsl", mn::Graphics::ShaderType::Fragment);
-                return mn::Graphics::PipelineBuilder::fromLua(RES_DIR, "/shaders/main.lua")
-                    .addShader(vertex.value)
-                    .addShader(fragment.value)
-                    .addDescriptorLayout(diffuse.value->layout);
-            }()),
+        renderer(world),
         frame_index{0},
         fpses(50, 0.0),
         bunnies(world.query_builder<Bunny, Engine::Component::Transform>().build())
     {   
         using namespace Engine;
 
-        auto diffuse = res.get<Engine::System::DiffuseMaterial>("diffuse_material");
+        auto color   = res.create<Engine::System::ColorMaterial>  ("color_material", res);
+        auto diffuse = res.create<Engine::System::DiffuseMaterial>("diffuse_material", res);
 
-        auto obj_model = res.create<Engine::Model>("bunny_model", RES_DIR "/models/stanford-bunny.obj");
-        auto dragon_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj");
-        auto erato_model = res.create<Engine::Model>("erato_model", RES_DIR "/models/erato/erato.obj", diffuse.value);
+        auto obj_model    = res.create<Engine::Model>("bunny_model",  RES_DIR "/models/stanford-bunny.obj", color.value);
+        auto dragon_model = res.create<Engine::Model>("dragon_model", RES_DIR "/models/xyzrgb_dragon.obj",  color.value);
+        auto erato_model  = res.create<Engine::Model>("erato_model",  RES_DIR "/models/erato/erato.obj",    diffuse.value);
 
         for (int i = 0; i < 18; i++)
         {
@@ -70,15 +62,15 @@ namespace Game
                     };
 
                     auto e = createEntity();
-                    e.set(Component::Model{ .model = model(index) });
+                    e.set(Component::Model{ .model = model(index), .lit = true });
                     e.set(Component::Transform{ .position = 
                         { 
-                            8.f * (i - 9),
-                            8.f * (j - 9), 
-                            8.f * (k - 9)
+                            10.f * (i - 9),
+                            10.f * (j - 9), 
+                            10.f * (k - 9)
                         },
                         .rotation = { mn::Math::Angle::degrees(180), mn::Math::Angle::degrees(0), mn::Math::Angle::degrees(0) },
-                        .scale = scale(index)
+                        .scale = scale(index),
                     });
                     e.add<Bunny>();
                 }
@@ -121,28 +113,16 @@ namespace Game
 
         Vec3f forward = [this]()
         {
-            auto forward = rotation<float>(camera.get<Component::Transform>()->rotation) * Vec4f{ 0.f, 0.f, -1.f, 0.f };
-            Vec3f ret;
-            x(ret) = x(forward);
-            y(ret) = y(forward);
-            z(ret) = z(forward);
-
-            y(ret) = 0.f;
-            ret = normalized(ret);
-            return ret;
+            auto forward = rotateQuaternion(camera.get<Component::Transform>()->rotation * -1.f, Vec3f{ 0.f, 0.f, -1.f });
+            y(forward) = 0;
+            return normalized(forward);
         }();
 
         Vec3f right = [this]()
         {
-            auto forward = rotation<float>(camera.get<Component::Transform>()->rotation) * Vec4f{ 1.f, 0.f, 0.f, 0.f };
-            Vec3f ret;
-            x(ret) = x(forward);
-            y(ret) = y(forward);
-            z(ret) = z(forward);
-
-            y(ret) = 0.f;
-            ret = normalized(ret);
-            return ret;
+            auto forward = rotateQuaternion(camera.get<Component::Transform>()->rotation * -1.f, Vec3f{ 1.f, 0.f, 0.f });
+            y(forward) = 0;
+            return normalized(forward);
         }();
 
         Vec3f delta;
@@ -211,6 +191,7 @@ namespace Game
         ImGui::Begin("Rendering");
         ImGui::Text("FPS: %u", static_cast<uint32_t>(get_fps()));
         ImGui::Checkbox("Render Wireframe", &renderer.settings.wireframe);
+        ImGui::Checkbox("Render Bounding Boxes", &renderer.settings.bounding_boxes);
 
         ImGui::SeparatorText("Scene Profiling");
         

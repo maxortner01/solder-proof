@@ -15,6 +15,8 @@ namespace Engine::System
         struct InstanceData
         {
             mn::Math::Mat4<float> model, normal;
+            uint32_t lit;
+            uint32_t test[15];
         };
 
         // The per-camera data representation in the GPU
@@ -34,7 +36,7 @@ namespace Engine::System
         struct PushConstant
         {
             mn::Graphics::Buffer::gpu_addr scene_data, models, lights, instance_indices;
-            uint32_t scene_index, light_count, offset, enable_lighting, descriptor_present;
+            uint32_t scene_index, light_count, offset, enable_lighting;
         };
 
         struct GBufferPush
@@ -58,6 +60,7 @@ namespace Engine::System
         struct Settings
         {
             bool wireframe = false;
+            bool bounding_boxes = false;
         } settings;
 
         // Images used to store geometry information
@@ -71,7 +74,7 @@ namespace Engine::System
             void rebuild(mn::Math::Vec2u size);
         };
 
-        Renderer(flecs::world _world, const mn::Graphics::PipelineBuilder& builder);
+        Renderer(flecs::world _world);
         
         void render(mn::Graphics::RenderFrame& rf) const;
 
@@ -79,6 +82,10 @@ namespace Engine::System
 
     private:
         flecs::world world;
+
+        bool cull(const BoundingBox& aabb, const mn::Math::Mat4<float>& model, const Component::Transform& transform, const Component::Camera& camera) const;
+
+        mutable std::size_t total_instance_count;
 
         mutable std::vector<GBuffer> gbuffers;
 
@@ -89,11 +96,11 @@ namespace Engine::System
         flecs::query<const Component::Model, const Component::Transform> model_query;
 
         std::shared_ptr<mn::Graphics::Mesh> quad_mesh;
-        std::shared_ptr<Engine::Model> cube_model;
+        //std::shared_ptr<Engine::Model> cube_model;
 
         std::shared_ptr<mn::Graphics::Descriptor::Layout> gbuffer_descriptor_layout;
         std::shared_ptr<mn::Graphics::Descriptor> gbuffer_descriptor;
-        std::shared_ptr<mn::Graphics::Pipeline> pipeline, wireframe_pipeline, hdr_pipeline, quad_pipeline;
+        std::shared_ptr<mn::Graphics::Pipeline> hdr_pipeline, quad_pipeline;
 
         mutable mn::Graphics::TypeBuffer<InstanceData> brother_buffer;
         mutable mn::Graphics::TypeBuffer<uint32_t> instance_buffer;

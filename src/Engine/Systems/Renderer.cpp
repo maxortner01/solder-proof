@@ -2,6 +2,8 @@
 
 #include "../../Util/DataRep.hpp"
 
+#include "Material.hpp"
+
 #include <imgui.h>
 #include <unordered_map>
 
@@ -43,7 +45,7 @@ namespace Engine::System
         this->size = size;
     }
 
-    Renderer::Renderer(flecs::world _world, const mn::Graphics::PipelineBuilder& builder) : 
+    Renderer::Renderer(flecs::world _world) : 
         world{_world},
         model_query(_world.query_builder<const Component::Model, const Component::Transform>()
             .cached()
@@ -59,37 +61,21 @@ namespace Engine::System
         light_query(_world.query_builder<const Component::Light, const Component::Transform>()
             .cached()
             .build()),
-        pipeline(std::make_shared<mn::Graphics::Pipeline>(
-            [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
-            {
-                return std::move(builder.setPushConstantObject<PushConstant>().build());
-            }(builder)
-        )),
-        wireframe_pipeline(std::make_shared<mn::Graphics::Pipeline>(
-            [](mn::Graphics::PipelineBuilder builder) -> mn::Graphics::Pipeline
-            {
-                return std::move(builder.setPushConstantObject<PushConstant>()
-                    .setBackfaceCull(false)
-                    .setPolyMode(mn::Graphics::Polygon::Wireframe)
-                    .build());
-            }(builder)
-        )),
         quad_mesh(std::make_shared<mn::Graphics::Mesh>(mn::Graphics::Mesh::fromFrame([]()
         {
             mn::Graphics::Mesh::Frame frame;
 
             frame.vertices = {
-                mn::Graphics::Mesh::Vertex{ .position = { -1.f,  1.f, 0.f }, .tex_coords = { 0.f, 1.f } },
-                mn::Graphics::Mesh::Vertex{ .position = {  1.f,  1.f, 0.f }, .tex_coords = { 1.f, 1.f } },
-                mn::Graphics::Mesh::Vertex{ .position = {  1.f, -1.f, 0.f }, .tex_coords = { 1.f, 0.f } },
-                mn::Graphics::Mesh::Vertex{ .position = { -1.f, -1.f, 0.f }, .tex_coords = { 0.f, 0.f } }
+                mn::Graphics::Mesh::Vertex{ .position = { -1.f,  1.f, 0.f }, .tex_coords = { 0.f, 0.f } },
+                mn::Graphics::Mesh::Vertex{ .position = {  1.f,  1.f, 0.f }, .tex_coords = { 1.f, 0.f } },
+                mn::Graphics::Mesh::Vertex{ .position = {  1.f, -1.f, 0.f }, .tex_coords = { 1.f, 1.f } },
+                mn::Graphics::Mesh::Vertex{ .position = { -1.f, -1.f, 0.f }, .tex_coords = { 0.f, 1.f } }
             };
 
             frame.indices = { 1, 0, 2, 3, 2, 0 };
 
             return frame;
         }()))),
-        cube_model(std::make_shared<Engine::Model>(RES_DIR "/models/cube.obj")),
         profiler(std::make_shared<Util::Profiler>())
     {   
         using namespace mn::Graphics;
@@ -106,7 +92,7 @@ namespace Engine::System
         gbuffer_descriptor = descriptor_pool->allocateDescriptor(gbuffer_descriptor_layout);
 
         mn::Graphics::PipelineBuilder quad_builder;
-        quad_builder.addShader(RES_DIR "/shaders/quad.vertex.glsl",   mn::Graphics::ShaderType::Vertex);
+        quad_builder.addShader(RES_DIR "/shaders/quad.vertex.glsl", mn::Graphics::ShaderType::Vertex);
         quad_builder.setDepthTesting(false);
         quad_builder.setBackfaceCull(true);
         quad_builder.addDescriptorLayout(gbuffer_descriptor_layout);
@@ -164,7 +150,9 @@ namespace Engine::System
             std::shared_ptr<TypeBuffer<Mesh::Vertex>> vertex;
             std::shared_ptr<TypeBuffer<uint32_t>> index;
             std::size_t index_offset, index_count;
-            std::shared_ptr<Descriptor> descriptor;
+            System::Material::Instance material;
+            BoundingBox aabb;
+            bool lit;
         };
 
         std::vector<ModelRep> offsets;
@@ -180,19 +168,25 @@ namespace Engine::System
         // we can keep handle the descriptor set here as well
         // go through the unique models and push the texture
 
-        std::size_t total_instance_count = 0;
+        total_instance_count = 0;
         std::unordered_map<
             std::shared_ptr<Model::BoundedMesh>, std::vector<InstanceData>> instance_data;
 
         auto flecs_block = profiler->beginBlock("FlecsBlock");
 
-        std::vector<Math::Vec3f> view_pos;
+        struct CameraRep
+        {
+            Component::Transform transform;
+            Component::Camera camera;
+        };
+
+        std::vector<CameraRep> cameras;
         std::vector<std::shared_ptr<Graphics::Image>> camera_images;
 
         auto camera_query_block = profiler->beginBlock("CameraQuery");
         std::size_t it = 0;
         camera_query.each(
-            [this, &rf, &it, &camera_images, &view_pos](flecs::entity e, const Component::Camera& camera)
+            [this, &rf, &it, &camera_images, &cameras](flecs::entity e, const Component::Camera& camera)
             {
                 const auto& attach = camera.surface->getColorAttachments()[0];
 
@@ -200,44 +194,57 @@ namespace Engine::System
                     gbuffers[it].rebuild(attach.size);
 
                 camera_images.push_back(camera.surface);
-                view_pos.push_back(e.get<Component::Transform>()->position);
+                cameras.push_back(CameraRep{
+                    .transform = *e.get<Component::Transform>(),
+                    .camera    = camera
+                });
 
-                scene_data[it  ].view = ( e.has<Component::Transform>() ?
-                    Math::translation(e.get<Component::Transform>()->position * -1.f) * Math::rotation<float>(e.get<Component::Transform>()->rotation * -1.0) :
-                    Math::identity<4, float>()
-                );
+                scene_data[it  ].view = camera.createViewMatrix(*e.get<Component::Transform>());
                 scene_data[it++].projection = Math::perspective((float)Math::x(attach.size) / (float)Math::y(attach.size), camera.FOV, camera.near_far);
             });
         profiler->endBlock(camera_query_block, "CameraQuery");
 
+        assert(cameras.size() == 1);
+
         const auto model_query_block = profiler->beginBlock("ModelQuery"); 
         model_query.each(
-            [&](const Component::Model& model, const Component::Transform& transform)
+            [&](flecs::entity e, const Component::Model& model, const Component::Transform& transform)
             {
+                if (e.has<Component::Hidden>()) return;
+
                 const auto normal    = Math::rotation<float>(transform.rotation);
                 const auto model_mat = Math::scale(transform.scale) * normal * Math::translation(transform.position);
                 for (const auto& mesh : model.model.value->getMeshes())
                 {
-                    instance_data[mesh].push_back(InstanceData{
-                        .model  = model_mat,
-                        .normal = normal
-                    });
-                    total_instance_count++;
+                    if (e.has<Component::DontCull>() || !cull(mesh->aabb, model_mat, cameras[0].transform, cameras[0].camera))
+                    {
+                        instance_data[mesh].push_back(InstanceData{
+                            .model  = model_mat,
+                            .normal = normal,
+                            .lit    = model.lit
+                        });
+                        total_instance_count++;
+                    }
                 }
             });
         profiler->endBlock(model_query_block, "ModelQuery"); 
         
         const auto instance_copy = profiler->beginBlock("InstanceCopy");
-        brother_buffer.resize(total_instance_count);
+
+        if (brother_buffer.size() < total_instance_count)
+            brother_buffer.resize(total_instance_count);
+
         it = 0;
         for (auto& [ model, matrices ] : instance_data)
         {
+            if (!matrices.size()) continue;
+
             // Here we sort the matrices based off distance from camera 
             std::vector<std::pair<InstanceData, float>> distances;
             for (auto& matrix : matrices)
             {
                 const auto d1 = matrix.model * Math::Vec4f{0.f, 0.f, 0.f, 1.f};
-                const auto distance = Math::length(Math::Vec3f{Math::x(d1), Math::y(d1), Math::z(d1)} - view_pos[0]);
+                const auto distance = Math::length(Math::Vec3f{Math::x(d1), Math::y(d1), Math::z(d1)} - cameras[0].transform.position);
                 distances.push_back({ matrix, distance });
             }
 
@@ -288,7 +295,8 @@ namespace Engine::System
                             .index = model->lods.lod, 
                             .index_offset = model->lods.lod_offsets[index].offset, 
                             .index_count = model->lods.lod_offsets[index].count,
-                            .descriptor = model->descriptor
+                            .material = model->material,
+                            .aabb = model->aabb
                         });
                     }
                     else
@@ -299,7 +307,8 @@ namespace Engine::System
                             .index = model->mesh->index, 
                             .index_offset = 0, 
                             .index_count = model->mesh->index->size(),
-                            .descriptor = model->descriptor
+                            .material = model->material,
+                            .aabb = model->aabb
                         });
                     }
 
@@ -358,11 +367,12 @@ namespace Engine::System
 
         for (uint32_t j = 0; j < camera_query.count(); j++)
         {
-            instance_buffer.resize(total_instance_count);
+            if (instance_buffer.size() < total_instance_count)
+                instance_buffer.resize(total_instance_count);
+
             for (int i = 0; i < total_instance_count; i++)
                 instance_buffer[i] = i;
 
-            const auto& render_data = scene_data[0];
             for (uint32_t i = 0; i < offsets.size(); i++)
             {
                 int instances = ( i == offsets.size() - 1 ?
@@ -370,6 +380,9 @@ namespace Engine::System
                     offsets[i + 1].offset - offsets[i].offset
                 );
 
+                offsets[i].count = instances;
+
+                /*
                 std::size_t index = 0;
                 while (index < instances)
                 {
@@ -385,7 +398,7 @@ namespace Engine::System
                         instances--;
                     }
                 }
-                offsets[i].count = index;
+                offsets[i].count = index;*/
             }
 
             rf.clear({ 0.f, 0.f, 0.f }, 0.f);
@@ -393,14 +406,13 @@ namespace Engine::System
            
             rf.startRender(gbuffers[j].gbuffer);
 
-            const auto use_pipeline = (settings.wireframe ? wireframe_pipeline : pipeline);
-            rf.bind(use_pipeline);
+            Material::Instance current_material;
             
             for (std::size_t i = 0; i < offsets.size(); i++)
             {
                 if (!offsets[i].count) continue;
 
-                rf.setPushConstant(*use_pipeline, PushConstant {
+                rf.setPushConstant(*offsets[i].material.pipeline, PushConstant {
                     .scene_index        = j, 
                     .offset             = static_cast<uint32_t>(offsets[i].offset),
                     .light_count        = static_cast<uint32_t>(light_data.size()),
@@ -408,8 +420,7 @@ namespace Engine::System
                     .scene_data         = scene_data.getAddress(),
                     .instance_indices   = instance_buffer.getAddress(),
                     .models             = brother_buffer.getAddress(),
-                    .enable_lighting    = 1,
-                    .descriptor_present = (bool)offsets[i].descriptor.get()
+                    .enable_lighting    = 1
                 });
 
                 // Would like to extract the *binding* that happens here and do it one for all meshes, instead of for each mesh
@@ -422,30 +433,27 @@ namespace Engine::System
                 // INDEX 0
                 // ...
                 // So we only need to bind the vertex buffer if it has changed
-                if (offsets[i].descriptor)
-                    rf.bind(0, use_pipeline, offsets[i].descriptor);
-                    
+
+                if (offsets[i].material.pipeline != current_material.pipeline)
+                {
+                    if (offsets[i].material.pipeline)
+                        rf.bind(offsets[i].material.pipeline);
+                    current_material.pipeline = offsets[i].material.pipeline;
+                }
+
+                if (offsets[i].material.set != current_material.set)
+                {
+                    if (offsets[i].material.set)
+                        rf.bind(0, offsets[i].material.pipeline, offsets[i].material.set);
+                    current_material.set = offsets[i].material.set;   
+                }
+
                 rf.drawIndexed(
                     offsets[i].vertex, 
                     offsets[i].index, 
                     offsets[i].count, 
                     offsets[i].index_offset, 
-                    offsets[i].index_count); //instances);
-                /*
-                rf.bind(wireframe_pipeline);
-
-                rf.setPushConstant(*use_pipeline, PushConstant {
-                    .scene_index      = j, 
-                    .offset           = static_cast<uint32_t>(offsets[i].offset),
-                    .light_count      = static_cast<uint32_t>(light_data.size()),
-                    .lights           = light_data.getAddress(),
-                    .scene_data       = scene_data.getAddress(),
-                    .instance_indices = instance_buffer.getAddress(),
-                    .models           = brother_buffer.getAddress(),
-                    .enable_lighting  = 0
-                });
-
-                rf.draw(cube_model->getMeshes()[0].mesh, offsets[i].count);*/
+                    offsets[i].index_count);
             }
 
             // If draw_bounding_box
@@ -460,7 +468,7 @@ namespace Engine::System
             rf.setPushConstant(*quad_pipeline, GBufferPush {
                 .light_count      = static_cast<uint32_t>(light_data.size()),
                 .lights           = light_data.getAddress(),
-                .view_pos = view_pos[j]
+                .view_pos         = cameras[j].transform.position
             });
 
             // Take our scene and render it into the HDR surface doing the normal lighting
@@ -508,6 +516,7 @@ namespace Engine::System
         ImGui::Text("Cameras: %i", camera_query.count());
         ImGui::Text("Lights:  %i", light_query.count());
         ImGui::Text("Models:  %i", model_query.count());
+        ImGui::Text("Render Instance Count: %lu", total_instance_count);
         ImGui::Text("Total GPU Memory: %lu kB", 
             Util::convert<Util::Bytes, Util::Kilobytes>(brother_buffer.allocated() + instance_buffer.allocated() + scene_data.allocated() + light_data.allocated())
         );
@@ -572,4 +581,179 @@ namespace Engine::System
 
         ImGui::End();
     }
+
+    // Me and my buddy ChatGPT wrote this function
+    bool Renderer::cull(const BoundingBox& aabb, const mn::Math::Mat4<float>& model, const Component::Transform& transform, const Component::Camera& camera) const
+    {
+        //return false;
+
+        using namespace mn;
+
+        const auto viewMatrix = camera.createViewMatrix(transform);
+        const auto invView = Math::inv(viewMatrix);
+        const auto camera_pos_4 = invView * Math::Vec4f{ 0.f, 0.f, 0.f, 1.f };
+
+        auto position = Math::xyz(camera_pos_4);
+
+        // Step 1: Transform AABB to world space
+        BoundingBox worldAABB;
+        // Compute the 8 corners of the AABB in local space
+        std::array<Math::Vec4f, 8> corners = {
+            Math::Vec4f({ Math::x(aabb.min), Math::y(aabb.min), Math::z(aabb.min), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.max), Math::y(aabb.min), Math::z(aabb.min), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.min), Math::y(aabb.max), Math::z(aabb.min), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.max), Math::y(aabb.max), Math::z(aabb.min), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.min), Math::y(aabb.min), Math::z(aabb.max), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.max), Math::y(aabb.min), Math::z(aabb.max), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.min), Math::y(aabb.max), Math::z(aabb.max), 1.f }) * 0.9f,
+            Math::Vec4f({ Math::x(aabb.max), Math::y(aabb.max), Math::z(aabb.max), 1.f }) * 0.9f,
+        };
+        
+        // Transform corners by model matrix to get world-space AABB
+        for (auto& corner : corners)
+            corner = model * corner; // Assuming overloaded * for Mat4 * Vec3f
+
+        // Compute new world AABB from transformed corners
+        worldAABB.min = worldAABB.max = Math::xyz(corners[0]);
+        for (const auto& corner : corners)
+        {
+            worldAABB.min = Math::min(worldAABB.min, Math::xyz(corner));
+            worldAABB.max = Math::max(worldAABB.max, Math::xyz(corner));
+        }
+
+        if (Math::x(position) >= Math::x(worldAABB.min) && Math::x(position) <= Math::x(worldAABB.max) &&
+            Math::y(position) >= Math::y(worldAABB.min) && Math::y(position) <= Math::y(worldAABB.max) &&
+            Math::z(position) >= Math::z(worldAABB.min) && Math::z(position) <= Math::z(worldAABB.max))
+        {
+            // Camera is inside the bounding box, don't cull the object
+            return false;
+        }
+
+        // Step 2: Construct the frustum planes from the camera
+        // Get camera forward, right, and up vectors based on the rotation
+        const auto right_4 = (invView * Math::Vec4f{ 1.f, 0.f, 0.f, 1.f} - camera_pos_4);
+        const auto right = Math::normalized( Math::xyz(right_4) );
+
+        const auto up_4 = (invView * Math::Vec4f{ 0.f, 1.f, 0.f, 1.f} - camera_pos_4);
+        const auto up = Math::normalized( Math::xyz(up_4) );
+
+        const auto forward_4 = (invView * Math::Vec4f{ 0.f, 0.f, -1.f, 1.f} - camera_pos_4);
+        const auto forward = Math::normalized( Math::xyz(forward_4) );
+
+        //auto forward = Math::rotateQuaternion(transform.rotation * -1.f, Math::Vec3f({ 0.0f, 0.0f, -1.0f })); // Assuming camera looks down -Z
+        //auto right   = Math::rotateQuaternion(transform.rotation * -1.f, Math::Vec3f({ 1.0f, 0.0f,  0.0f }));
+        //auto up      = Math::rotateQuaternion(transform.rotation * -1.f, Math::Vec3f({ 0.0f, 1.0f,  0.0f }));
+
+        // Calculate near and far distances
+        float nearDist = Math::x(camera.near_far);
+        float farDist  = Math::y(camera.near_far);
+
+        if (Math::length(position - worldAABB.min) <= nearDist + 1.f || 
+            Math::length(position - worldAABB.max) <= nearDist + 1.f)
+        {
+            return false; // Don't cull if the object is very close to the near plane
+        }
+
+        // Calculate half dimensions of near and far planes based on FOV and aspect ratio
+
+        // TODO: For some reason changing the FOV doesn't change the culling...
+        float aspectRatio = (float)Math::x(camera.surface->getColorAttachments()[0].size) / (float)Math::y(camera.surface->getColorAttachments()[0].size); // Assuming 16:9 aspect ratio, adjust if needed
+        float nearHeight = 2.0f * tanf(camera.FOV.asRadians() / 2.0f) * nearDist;
+        float nearWidth = nearHeight * aspectRatio;
+        float farHeight = 2.0f * tanf(camera.FOV.asRadians() / 2.0f) * farDist;
+        float farWidth = farHeight * aspectRatio;
+
+        // Calculate centers of near and far planes
+        Math::Vec3f nearCenter = position + forward * nearDist;
+        Math::Vec3f farCenter  = position + forward * farDist;
+        // Step 3: Define the frustum planes (normal points inward)
+        // Step 3: Define the frustum planes (normal points inward)
+        std::array<Math::Vec4f, 6> frustumPlanes;
+
+        // Near plane
+        frustumPlanes[0] = Math::Vec4f({ Math::x(forward), Math::y(forward), Math::z(forward), -Math::inner(forward, nearCenter) });
+
+        // Far plane
+        frustumPlanes[1] = Math::Vec4f({ -Math::x(forward), -Math::y(forward), -Math::z(forward), Math::inner(forward, farCenter) });
+
+        // Correct Left plane calculation
+        Math::Vec3f leftEdgeNear = (nearCenter - (right * (nearWidth / 2.0f))) - position;  // Vector from camera to the left edge of the near plane
+        Math::Vec3f leftNormal = Math::normalized(Math::outer(up, leftEdgeNear));  // Cross product of the up vector and the left-edge vector
+        frustumPlanes[2] = Math::Vec4f({ Math::x(leftNormal), Math::y(leftNormal), Math::z(leftNormal), -Math::inner(leftNormal, nearCenter) });
+
+        // Correct Right plane calculation
+        Math::Vec3f rightEdgeNear = (nearCenter + (right * (nearWidth / 2.0f))) - position;  // Vector from camera to the right edge of the near plane
+        Math::Vec3f rightNormal = Math::normalized(Math::outer(rightEdgeNear, up));  // Cross product of the right-edge vector and the up vector
+        frustumPlanes[3] = Math::Vec4f({ Math::x(rightNormal), Math::y(rightNormal), Math::z(rightNormal), -Math::inner(rightNormal, nearCenter) });
+
+        // Correct Top plane calculation
+        Math::Vec3f topEdgeNear = (nearCenter + (up * (nearHeight / 2.0f))) - position;  // Vector from camera to the top edge of the near plane
+        Math::Vec3f topNormal = Math::normalized(Math::outer(right, topEdgeNear));  // Cross product of the right vector and the top-edge vector
+        frustumPlanes[4] = Math::Vec4f({ Math::x(topNormal), Math::y(topNormal), Math::z(topNormal), -Math::inner(topNormal, nearCenter) });
+
+        // Correct Bottom plane calculation
+        Math::Vec3f bottomEdgeNear = (nearCenter - (up * (nearHeight / 2.0f))) - position;  // Vector from camera to the bottom edge of the near plane
+        Math::Vec3f bottomNormal = Math::normalized(Math::outer(bottomEdgeNear, right));  // Cross product of the bottom-edge vector and the right vector
+        frustumPlanes[5] = Math::Vec4f({ Math::x(bottomNormal), Math::y(bottomNormal), Math::z(bottomNormal), -Math::inner(bottomNormal, nearCenter) });
+
+
+        // Step 4: Test the AABB against each frustum plane
+        for (const auto& plane : frustumPlanes)
+        {
+            auto normal = Math::xyz(plane);
+            float d = Math::w(plane);
+
+            // Calculate positive and negative vertex for plane-AABB test
+            Math::Vec3f positive = worldAABB.min;
+            Math::Vec3f negative = worldAABB.max;
+
+            if (Math::x(normal) >= 0) {
+                Math::x(positive) = Math::x(worldAABB.max);
+                Math::x(negative) = Math::x(worldAABB.min);
+            }
+            if (Math::y(normal) >= 0) {
+                Math::y(positive) = Math::y(worldAABB.max);
+                Math::y(negative) = Math::y(worldAABB.min);
+            }
+            if (Math::z(normal) >= 0) {
+                Math::z(positive) = Math::z(worldAABB.max);
+                Math::z(negative) = Math::z(worldAABB.min);
+            }
+
+            // Check if the positive vertex is outside the plane
+            if (Math::inner(normal, positive) + d < 0) {
+                // The AABB is outside the frustum
+                return true;
+            }
+
+            if (Math::inner(normal, negative) + d >= 0)
+            {
+                return false;
+            }
+        }
+
+        // If no planes exclude the AABB, it is inside the frustum
+        return false;
+    }
+
+
+    /*
+    bool Renderer::cull(
+        const BoundingBox& aabb, 
+        const mn::Math::Mat4<float>& model, 
+        const Component::Transform& transform, 
+        const Component::Camera& camera) const
+    {
+        using namespace mn::Math;
+
+        // Construct the Frustum
+        // Construct the Bounding box
+        // Do the Separating Axis checks
+        // return if success
+
+        const auto center_pos_4 = model * Vec4f{ 0.f, 0.f, 0.f, 1.f };
+        const auto center_pos = Vec3f{ x(center_pos_4), y(center_pos_4), z(center_pos_4)};
+        
+        return ( length(center_pos - transform.position) > 20.f );
+    }*/
 }

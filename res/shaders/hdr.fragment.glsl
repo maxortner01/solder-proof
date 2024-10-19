@@ -16,7 +16,7 @@ layout(set = 0, binding = 1) uniform texture2D textures[];
 
 void main() {
     const float gamma = 2.2;
-    vec3 color_in = texture(sampler2D(textures[0 * 4 + 3], samplers[0]), inTexCoords).xyz;
+    vec3 color_in = texture(sampler2D(textures[0 * 4 + 3], samplers[0]), inTexCoords * -1.0).xyz;
   
     // exposure tone mapping
     vec3 mapped = vec3(1.0) - exp(-color_in * constants.exposure);

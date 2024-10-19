@@ -22,13 +22,23 @@ namespace Engine::Component
         mn::Math::Vec3<mn::Math::Angle> rotation;
     };
 
+    struct Hidden { };
+    struct DontCull { };
+
     struct Model
     {
+        bool lit;
         ResourceManager::Entry<Engine::Model> model;
     };
 
     struct Camera
     {
+        enum Type
+        {
+            FPS, Orbit
+        } type;
+
+        float orbitDistance;
         mn::Math::Angle FOV;
         mn::Math::Vec2f near_far;
         std::shared_ptr<mn::Graphics::Image> surface;
@@ -45,6 +55,21 @@ namespace Engine::Component
                     .build()
             );
             return c;
+        }
+
+        mn::Math::Mat4<float> 
+        createViewMatrix(const Transform& transform) const
+        {
+            switch (type)
+            {
+            case Orbit:
+                return mn::Math::translation(transform.position * -1.f) *
+                       mn::Math::rotation<float>(transform.rotation * -1.f) *
+                       mn::Math::translation(mn::Math::Vec3f{ 0.f, 0.f, -orbitDistance });
+            case FPS:
+                return mn::Math::translation(transform.position * -1.f) * 
+                       mn::Math::rotation<float>(transform.rotation * -1.0);
+            }
         }
     };
 

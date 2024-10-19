@@ -18,7 +18,7 @@ namespace Engine
         {
             BoundingBox aabb;
             std::shared_ptr<mn::Graphics::Mesh> mesh;
-            std::shared_ptr<mn::Graphics::Descriptor> descriptor;
+            System::Material::Instance material;
             
             struct LOD
             {
@@ -36,6 +36,8 @@ namespace Engine
         Model() = default;
         Model(const Model&) = delete;
         Model(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys = nullptr);
+
+        std::shared_ptr<BoundedMesh> pushMesh(const std::shared_ptr<mn::Graphics::Mesh>& mesh);
 
         void loadFromFile(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys = nullptr);
 

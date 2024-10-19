@@ -77,17 +77,22 @@ namespace Engine
                 const auto dt = duration<double>(new_now - now).count();
                 now = new_now;
 
-                const auto update_block = profiler.beginBlock("SceneUpdate");
-                auto new_scene = scenes.back()->update(dt);
-                profiler.endBlock(update_block, "SceneUpdate");
+                {
+                    const auto update_block = profiler.beginBlock("SceneUpdate");
+                    auto new_scene = scenes.back()->update(dt);
+                    profiler.endBlock(update_block, "SceneUpdate");
+
+                    if (new_scene.destroy)    scenes.pop_back();
+                    if (new_scene.next_scene) scenes.push_back(std::move(new_scene.next_scene));
+                }
+
+                if (!scenes.size()) break;
                 
                 {
                     Util::ProfilerBlock render_block(profiler, "PollEvents");
                     mn::Graphics::Event event;
                     while (window->pollEvent(event))
-                    {
                         scenes.back()->poll(event);
-                    }
                 }
 
                 const auto frame_start = profiler.beginBlock("FrameStart");
@@ -107,6 +112,7 @@ namespace Engine
                     for (int i = 0; i < 5; i++)
                         total_time += profiler.getBlock(names[i])->getAverageRuntime(5.0);
 
+                    /*
                     ImGui::Begin("Application Profile");
                     
                     ImGui::BeginTable("Profiler", 3);
@@ -129,16 +135,13 @@ namespace Engine
                     }
                     ImGui::EndTable();
 
-                    ImGui::End();
+                    ImGui::End();*/
                 }
 
                 {
                     Util::ProfilerBlock render_block(profiler, "EndFrame");
 		            window->endFrame(rf);
                 }
-
-                if (new_scene.destroy)    scenes.pop_back();
-                if (new_scene.next_scene) scenes.push_back(std::move(new_scene.next_scene));
             }
 
             window->finishWork();

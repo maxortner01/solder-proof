@@ -53,15 +53,16 @@ void main() {
 
     uint enable_lighting = uint(position_sample.w);
 
-    vec3 inColor  = texture(sampler2D(textures[0], samplers[0]), inTexCoords).xyz;
-    vec3 position = position_sample.xyz;
-    vec3 normal   = texture(sampler2D(textures[2], samplers[0]), inTexCoords).xyz;
+    vec3 inColor = texture(sampler2D(textures[0], samplers[0]), inTexCoords).xyz;
 
     if (enable_lighting == 0) 
     {
         outColor = vec4(inColor, 1.0);
         return;
     }
+    
+    vec3 position = position_sample.xyz;
+    vec3 normal   = texture(sampler2D(textures[2], samplers[0]), inTexCoords).xyz;
 
     vec3 view_pos = get_pos(constants.view_pos);
 
@@ -80,5 +81,5 @@ void main() {
             + 0.08 * pow(max(dot(normal, halfwayDir), 0.0), 0.5)), // Specular 
         1);
     }
-    outColor = vec4(inColor.xyz, 1.0) * outColor;
+    outColor = vec4(inColor.xyz, 1.0) * (outColor + vec4(vec3(0.3), 1.0));
 }

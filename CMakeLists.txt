@@ -16,7 +16,10 @@ add_executable(main
     ${CMAKE_SOURCE_DIR}/src/Engine/Systems/Material.cpp
     ${CMAKE_SOURCE_DIR}/src/Engine/Model.cpp
     ${CMAKE_SOURCE_DIR}/src/Engine/Application.cpp
-    ${CMAKE_SOURCE_DIR}/src/Game/MainScene.cpp
+    
+    ${CMAKE_SOURCE_DIR}/src/Game/EditorScene.cpp
+    ${CMAKE_SOURCE_DIR}/src/Game/LoadingScene.cpp
+
     ${CMAKE_SOURCE_DIR}/src/Util/Profiler.cpp)
     
 target_link_libraries(main PRIVATE midnight-graphics simple-lua flecs assimp::assimp meshoptimizer)

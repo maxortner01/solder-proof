@@ -27,8 +27,14 @@
 //     Moving away from the combined image sampler allows us to have many many *more* images, and move towards bindless
 // [ ] Need to implement texture loading into the model class
 // [x] Use meshoptimizer to generate LOD meshes
-// [ ] To start developing levels I need only culling and materials built in
-
+// [x] To start developing levels I need only culling and materials built in
+// [ ] Fix frustum culling
+// [ ] Write files to binary format
+// [ ] Combine all LODs and regular indices into a single index buffer
+// [ ] Clean up renderer
+// [ ] Only want to consider lights that are close enough to the camera
+// [ ] Maybe have each camera hold an instance to renderer...
+ 
 // [ ] Level editor: load in models, manage resources, see entities/components, create entities, etc. 
 
 namespace Game

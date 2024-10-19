@@ -19,6 +19,24 @@ namespace Engine
         loadFromFile(path, material_sys);
     }
 
+    
+    std::shared_ptr<Model::BoundedMesh> Model::pushMesh(const std::shared_ptr<mn::Graphics::Mesh>& mesh)
+    {
+        auto model = std::make_shared<BoundedMesh>();
+        model->mesh = mesh;
+        
+        const auto vertex_span = mesh->vertices();
+        for (const auto& vertex : vertex_span)
+        {
+            model->aabb.min = mn::Math::min(model->aabb.min, vertex.position);
+            model->aabb.max = mn::Math::max(model->aabb.max, vertex.position);
+        }
+
+        _meshes.push_back(model);
+
+        return model;
+    }
+
     void Model::loadFromFile(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys)
     {
         using namespace mn;
@@ -79,15 +97,15 @@ namespace Engine
                             frame.indices.push_back(face.mIndices[j]);
                     }
 
-                    std::shared_ptr<Descriptor> descriptor;
+                    System::Material::Instance material;
                     if (scene->HasMaterials() && file_mesh->mMaterialIndex < scene->mNumMaterials && material_sys.get())
-                        descriptor = material_sys->resolveMaterial(path, scene->mMaterials[file_mesh->mMaterialIndex]);
+                        material = material_sys->resolveMaterial(path, scene->mMaterials[file_mesh->mMaterialIndex]);
 
                     this->_meshes.push_back(std::make_shared<BoundedMesh>(
                         BoundedMesh {
                             .aabb = aabb,
                             .mesh = std::make_shared<Mesh>(Mesh::fromFrame(frame)),
-                            .descriptor = descriptor
+                            .material = material
                         })
                     );
                 }   
