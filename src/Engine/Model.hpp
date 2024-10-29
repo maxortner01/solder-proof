@@ -38,6 +38,7 @@ namespace Engine
         Model(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys = nullptr);
 
         std::shared_ptr<BoundedMesh> pushMesh(const std::shared_ptr<mn::Graphics::Mesh>& mesh);
+        void pushBoundedMesh(const std::shared_ptr<BoundedMesh>& mesh);
 
         void loadFromFile(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys = nullptr);
 

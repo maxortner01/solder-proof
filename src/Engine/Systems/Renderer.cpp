@@ -212,7 +212,8 @@ namespace Engine::System
             {
                 if (e.has<Component::Hidden>()) return;
 
-                const auto normal    = Math::rotation<float>(transform.rotation);
+                //const auto normal    = Math::rotation<float>(transform.rotation);
+                const auto normal    = (transform.rotation_matrix ? *transform.rotation_matrix : Math::rotationUsingQuaternion<float>(transform.rotation));
                 const auto model_mat = Math::scale(transform.scale) * normal * Math::translation(transform.position);
                 for (const auto& mesh : model.model.value->getMeshes())
                 {
@@ -401,8 +402,17 @@ namespace Engine::System
                 offsets[i].count = index;*/
             }
 
-            rf.clear({ 0.f, 0.f, 0.f }, 0.f);
+
+            const std::tuple<float, float, float> clear_color = 
+            {
+                mn::Math::x(cameras[j].camera.clear_color),
+                mn::Math::y(cameras[j].camera.clear_color),
+                mn::Math::z(cameras[j].camera.clear_color)
+            };
+
+            //rf.clear({ 0.f, 0.f, 0.f }, 0.f);
             rf.clear({ 0.f, 0.f, 0.f }, 0.f, gbuffers[j].gbuffer);
+            rf.clear(clear_color, mn::Math::w(cameras[j].camera.clear_color), gbuffers[j].gbuffer, 0);
            
             rf.startRender(gbuffers[j].gbuffer);
 
@@ -496,7 +506,7 @@ namespace Engine::System
 
             rf.setPushConstant(*hdr_pipeline, HDRPush {
                 .index = j,
-                .exposure = 0.02f
+                .exposure = cameras[j].camera.exposure
             });
 
             rf.bind(0, hdr_pipeline, gbuffer_descriptor);

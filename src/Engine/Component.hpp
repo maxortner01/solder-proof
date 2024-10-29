@@ -20,6 +20,7 @@ namespace Engine::Component
     {
         mn::Math::Vec3f position, scale;
         mn::Math::Vec3<mn::Math::Angle> rotation;
+        std::optional<mn::Math::Mat4<float>> rotation_matrix;
     };
 
     struct Hidden { };
@@ -39,6 +40,8 @@ namespace Engine::Component
         } type;
 
         float orbitDistance;
+        float exposure = 1.f;
+        mn::Math::Vec4f clear_color;
         mn::Math::Angle FOV;
         mn::Math::Vec2f near_far;
         std::shared_ptr<mn::Graphics::Image> surface;

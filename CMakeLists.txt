@@ -19,4 +19,4 @@ add_library(solder-proof
     
 target_link_libraries(solder-proof PUBLIC midnight-graphics simple-lua flecs assimp::assimp meshoptimizer)
 target_include_directories(solder-proof PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_compile_definitions(solder-proof PRIVATE -DRES_DIR="${CMAKE_SOURCE_DIR}/res")
+target_compile_definitions(solder-proof PRIVATE -DRES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/res")

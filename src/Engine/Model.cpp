@@ -36,6 +36,11 @@ namespace Engine
 
         return model;
     }
+    
+    void Model::pushBoundedMesh(const std::shared_ptr<BoundedMesh>& mesh)
+    {
+        _meshes.push_back(mesh);
+    }
 
     void Model::loadFromFile(const std::filesystem::path& path, std::shared_ptr<System::Material> material_sys)
     {
@@ -46,8 +51,7 @@ namespace Engine
         const auto* scene = importer.ReadFile(path.string(), 
             aiProcess_Triangulate | 
             aiProcess_FlipUVs | 
-            aiProcess_GenNormals | 
-            aiProcess_OptimizeMeshes |
+            aiProcess_GenNormals |
             aiProcess_GenBoundingBoxes);
 
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
